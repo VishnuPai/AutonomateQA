@@ -19,7 +19,7 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 
 1. **Clone and build**
    ```bash
-   cd UiTestRunner
+   cd AutonomateQA
    dotnet restore
    dotnet build
    ```
