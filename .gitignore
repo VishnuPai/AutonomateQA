@@ -1,0 +1,60 @@
+# Secrets and local config - never commit
+test_secrets.json
+**/test_secrets.json
+appsettings.*.local.json
+
+# Build outputs
+bin/
+obj/
+[Bb]uild/
+[Oo]ut/
+*.user
+*.suo
+*.cache
+.vs/
+*.rsuser
+
+# Database (may contain test result URLs and run data)
+app.db
+*.db
+*.db-shm
+*.db-wal
+
+# Build / IDE artifacts
+build_errors.txt
+build_output.txt
+*.log
+[Dd]ebug/
+[Rr]elease/
+
+# Recorded test sessions (one-off; keep Scenarios/ for committed features)
+recorded_test_*.feature
+recorded_test_*.feature.cs
+
+# User Secrets (stored outside repo)
+secrets.json
+
+# Playwright (browsers are installed per machine)
+.playwright/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Test results
+[Tt]est[Rr]esult*/
+[Cc]overage/
+*.trx
+*.coverage
+*.coveragexml
+
+# Test run artifacts (screenshots/videos from runner)
+wwwroot/screenshots/
+wwwroot/videos/
