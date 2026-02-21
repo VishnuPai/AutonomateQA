@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using UiTestRunner.Data;
 
@@ -10,9 +11,10 @@ using UiTestRunner.Data;
 namespace UiTestRunner.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    partial class AddBatchRunIdToTestResult
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.3");
@@ -49,6 +51,10 @@ namespace UiTestRunner.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("BatchRunId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<TimeSpan?>("Duration")
                         .HasColumnType("TEXT");
 
@@ -57,18 +63,6 @@ namespace UiTestRunner.Migrations
 
                     b.Property<string>("GherkinScript")
                         .HasMaxLength(100000)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("BatchRunId")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("FeaturePath")
-                        .HasMaxLength(512)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ScenarioName")
-                        .HasMaxLength(512)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("HangfireJobId")

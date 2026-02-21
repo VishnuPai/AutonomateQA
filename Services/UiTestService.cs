@@ -21,11 +21,12 @@ namespace UiTestRunner.Services
         private readonly IAiModelProvider _aiProvider;
         private readonly ITestDataManager _testDataManager;
         private readonly IPlaywrightVisionService _visionService;
+        private readonly ITestRunTokenTracker _tokenTracker;
 
         private string? _lastSnapshot; // Store the last snapshot
         private readonly StringBuilder _reasoningBuffer = new(); // Buffer for reasoning log entries
 
-        public UiTestService(IServiceScopeFactory scopeFactory, ILogger<UiTestService> logger, IWebHostEnvironment env, IAiModelProvider aiProvider, ITestDataManager testDataManager, IPlaywrightVisionService visionService, Microsoft.Extensions.Options.IOptions<PlaywrightSettings> playwrightSettings)
+        public UiTestService(IServiceScopeFactory scopeFactory, ILogger<UiTestService> logger, IWebHostEnvironment env, IAiModelProvider aiProvider, ITestDataManager testDataManager, IPlaywrightVisionService visionService, Microsoft.Extensions.Options.IOptions<PlaywrightSettings> playwrightSettings, ITestRunTokenTracker tokenTracker)
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
@@ -34,6 +35,7 @@ namespace UiTestRunner.Services
             _testDataManager = testDataManager;
             _visionService = visionService;
             _playwrightSettings = playwrightSettings.Value;
+            _tokenTracker = tokenTracker;
         }
 
         public async Task<string> GetPageSnapshotAsync(IPage page, CancellationToken cancellationToken = default)
@@ -44,7 +46,14 @@ namespace UiTestRunner.Services
             
             // Mask private data
             var sanitized = MaskPrivateData(snapshot);
-            
+
+            // Truncate snapshot to limit prompt tokens (also applied in PlaywrightVisionService for test execution)
+            if (_playwrightSettings.MaxAriaSnapshotLength > 0 && sanitized.Length > _playwrightSettings.MaxAriaSnapshotLength)
+            {
+                sanitized = sanitized.Substring(0, _playwrightSettings.MaxAriaSnapshotLength)
+                    + "\n\n... (snapshot truncated to reduce token usage)";
+            }
+
             // Store locally
             _lastSnapshot = sanitized;
             
@@ -77,6 +86,7 @@ namespace UiTestRunner.Services
 
             testResult.Status = TestStatus.Running;
             testResult.RunTime = DateTime.Now;
+            _tokenTracker.Reset();
             await db.SaveChangesAsync();
 
             var startTime = DateTime.Now;
@@ -116,6 +126,11 @@ namespace UiTestRunner.Services
             {
                 // Flush reasoning log buffer to database
                 await FlushReasoningLogAsync(testResult, db);
+
+                var (promptTokens, completionTokens, totalTokens) = _tokenTracker.GetTotal();
+                testResult.PromptTokens = promptTokens > 0 ? promptTokens : null;
+                testResult.CompletionTokens = completionTokens > 0 ? completionTokens : null;
+                testResult.TotalTokens = totalTokens > 0 ? totalTokens : null;
                 
                 // Cleanup browser resources and save video
                 var videoPath = await GetVideoPathAsync(page);
@@ -216,41 +231,40 @@ namespace UiTestRunner.Services
                 {
                     bool passed = false;
                     string lastReasoning = string.Empty;
-                    int maxRetries = 3;
-                    
-                    for (int i = 0; i < maxRetries; i++)
+                    const int maxAttempts = 2; // 1 initial + 1 retry (fewer attempts = fewer tokens when step fails)
+
+                    for (int i = 0; i < maxAttempts; i++)
                     {
                         if (i > 0)
                         {
-                            _logger.LogInformation($"Verification failed. Retrying in 2 seconds ({i}/{maxRetries-1})...");
+                            _logger.LogInformation("Verification failed. Retrying in 2 seconds ({Attempt}/{Max})...", i, maxAttempts);
                             await Task.Delay(2000, cancellationToken);
                         }
 
-                        // Take snapshot inside the loop to get updated DOM
-                        var snapshot = await _visionService.GetCleanSnapshotAsync(page, cancellationToken);
+                        var snapshot = await _visionService.GetCleanSnapshotAsync(page, forVerification: true, cancellationToken);
                         cancellationToken.ThrowIfCancellationRequested();
 
                         var verifyResult = await _aiProvider.VerifyAsync(step, snapshot, cancellationToken);
                         passed = verifyResult.Passed;
                         lastReasoning = verifyResult.Reasoning;
-                        
-                        if (passed) 
+
+                        if (passed)
                         {
                             AppendReasoningLog($"[Verify] Step: '{step}' - Result: True (Attempt {i+1}) - AI Reasoning: {lastReasoning}");
                             break;
                         }
                     }
-                    
-                    if (!passed) 
+
+                    if (!passed)
                     {
-                        AppendReasoningLog($"[Verify] Step: '{step}' - Result: False (Failed after {maxRetries} attempts) - AI Reasoning: {lastReasoning}");
+                        AppendReasoningLog($"[Verify] Step: '{step}' - Result: False (Failed after {maxAttempts} attempts) - AI Reasoning: {lastReasoning}");
                         throw new Exception($"AI Verification Failed for step: {step}. Reason: {lastReasoning}");
                     }
                 }
                 else
                 {
-                    // For actions, snapshot once
-                    var snapshot = await _visionService.GetCleanSnapshotAsync(page, cancellationToken);
+                    // For actions, snapshot once (full limit for action steps)
+                    var snapshot = await _visionService.GetCleanSnapshotAsync(page, forVerification: false, cancellationToken);
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var action = await _aiProvider.GetActionAsync(step, snapshot, cancellationToken);

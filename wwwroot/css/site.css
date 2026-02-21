@@ -29,3 +29,22 @@ body {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
   text-align: start;
 }
+
+/* Test runner: clear tab separation */
+.nav-tabs-card .nav-link {
+  border: none;
+  color: var(--bs-secondary-color);
+  padding: 0.5rem 1rem;
+}
+.nav-tabs-card .nav-link:hover {
+  color: var(--bs-primary);
+}
+.nav-tabs-card .nav-link.active {
+  color: var(--bs-primary);
+  font-weight: 600;
+  border-bottom: 2px solid var(--bs-primary);
+  background: transparent;
+}
+.font-monospace {
+  font-family: var(--bs-font-monospace);
+}

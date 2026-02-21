@@ -1,101 +1,216 @@
 @{
     ViewData["Title"] = "AutonomateQA";
+    var baseUrlFromConfig = ViewData["BaseUrl"]?.ToString();
+    var defaultUrl = baseUrlFromConfig ?? "";
 }
 
-<div class="container mt-4">
-    <h2 class="mb-4">AutonomateQA</h2>
+<div class="container-fluid mt-3 mt-md-4">
+    <h2 class="mb-3 mb-md-4">AutonomateQA</h2>
 
-    <div class="row">
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header bg-primary text-white">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">Run New Test</h5>
-                        <button class="btn btn-sm btn-light text-primary" onclick="startRecording()">Record New Test</button>
-                    </div>
-                </div>
+    <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="main-tab-run" data-bs-toggle="tab" data-bs-target="#main-panel-run" type="button" role="tab">Run tests</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="main-tab-history" data-bs-toggle="tab" data-bs-target="#main-panel-history" type="button" role="tab">Execution history</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="main-panel-run" role="tabpanel">
+            <div class="card shadow-sm">
                 <div class="card-body">
-                    <form id="testForm">
-                        <div class="mb-3">
-                            <label for="SavedTests" class="form-label text-primary fw-bold">Load Saved Test</label>
-                            <select class="form-select border-primary" id="SavedTests" onchange="loadSavedTest()">
-                                <option value="">-- Select a saved test... --</option>
-                            </select>
+                    <div class="d-flex flex-wrap align-items-end gap-3 mb-3 pb-3 border-bottom">
+                        <div class="flex-grow-1 min-w-200">
+                            <label for="Url" class="form-label fw-semibold mb-1">Target URL</label>
+                            <input type="url" class="form-control" id="Url" required placeholder="@(string.IsNullOrEmpty(defaultUrl) ? "e.g. https://yourapp.com/login" : "")" value="@defaultUrl" title="URL of the application to test">
+                            <div class="form-text">Pre-filled from config when set; enter or change the URL to use for this run.</div>
                         </div>
-                        <hr/>
+                        <ul class="nav nav-tabs nav-tabs-card mb-0 me-2" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="tab-single" data-bs-toggle="tab" data-bs-target="#panel-single" type="button" role="tab">Single test</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="tab-batch" data-bs-toggle="tab" data-bs-target="#panel-batch" type="button" role="tab">Batch run</button>
+                            </li>
+                        </ul>
+                        <div id="single-actions" class="d-flex flex-wrap gap-2">
+                            <button type="submit" form="testForm" class="btn btn-success" id="btnRun">Run test</button>
+                            <button type="button" class="btn btn-outline-primary" onclick="showSaveModal()">Save script</button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="startRecording()">Record</button>
+                        </div>
+                        <div id="batch-actions" class="d-none">
+                            <button type="button" class="btn btn-primary" id="btnBatchRun" disabled>Run batch</button>
+                        </div>
+                    </div>
+                    <form id="testForm" class="d-none" aria-hidden="true"></form>
 
-                        <div class="mb-3">
-                            <label for="Url" class="form-label">Target URL</label>
-                            <input type="url" class="form-control" id="Url" required placeholder="https://example.com/login" value="@(ViewData["BaseUrl"] ?? "https://example.com/login")">
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label class="form-label d-flex justify-content-between">
-                                <span>Gherkin Script (Optional)</span>
-                                <label for="fileUpload" class="text-primary" style="cursor: pointer; text-decoration: underline;">Upload .feature File</label>
-                            </label>
-                            <input type="file" id="fileUpload" accept=".feature" class="d-none" onchange="handleFileUpload(event)">
-                            <textarea class="form-control" id="GherkinScript" rows="5" placeholder="When I type 'user' into Username..."></textarea>
-                            <div class="form-text">If provided, this script overrides the default login test.</div>
-                        </div>
+                    <div class="row g-3">
+                        <div class="col-12 col-lg-6 col-xl-5" id="run-details-col">
+                            <div class="tab-content">
+                                <div class="tab-pane fade show active" id="panel-single" role="tabpanel">
+                                    <div class="mb-3">
+                                        <label for="SavedTests" class="form-label">Saved test (optional)</label>
+                                        <select class="form-select form-select-sm" id="SavedTests" onchange="loadSavedTest()">
+                                            <option value="">— None —</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="GherkinScript" class="form-label d-flex justify-content-between align-items-center">
+                                            <span>Gherkin script</span>
+                                            <label for="fileUpload" class="btn btn-link btn-sm p-0 text-primary text-decoration-none">Upload .feature</label>
+                                        </label>
+                                        <input type="file" id="fileUpload" accept=".feature" class="d-none" onchange="handleFileUpload(event)">
+                                        <textarea class="form-control font-monospace" id="GherkinScript" rows="10" placeholder="When I type 'user' into Username&#10;And I click the 'Sign In' button"></textarea>
+                                        <div class="form-text">Paste steps or upload a .feature file. Leave empty to use default flow.</div>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="Headed">
+                                        <label class="form-check-label" for="Headed">Show browser</label>
+                                    </div>
+                                </div>
 
-                        <div class="mb-3">
-                            <div class="form-check form-switch border rounded p-2 ps-5 bg-light">
-                                <input class="form-check-input" type="checkbox" id="Headed">
-                                <label class="form-check-label ms-2" for="Headed">Show Browser (Headed Mode)</label>
+                                <div class="tab-pane fade" id="panel-batch" role="tabpanel">
+                                    <p class="small text-muted mb-3">Choose a feature file (or all), optionally one scenario. Options below.</p>
+                                    <div class="mb-3">
+                                        <label for="BatchFeaturePath" class="form-label">Feature file</label>
+                                        <select class="form-select" id="BatchFeaturePath">
+                                            <option value="">— Select a file —</option>
+                                            <option value="__all__">All feature files</option>
+                                        </select>
+                                        <div class="form-text mt-1" id="batchScenarioCount">Select a file or "All feature files".</div>
+                                    </div>
+                                    <div class="mb-3 d-none" id="batchScenarioRow">
+                                        <label for="BatchScenario" class="form-label">Scenario</label>
+                                        <select class="form-select" id="BatchScenario">
+                                            <option value="">All in this file</option>
+                                        </select>
+                                        <div class="form-text mt-1">One scenario or all in this file.</div>
+                                    </div>
+                                    <div class="mb-3 d-none small text-muted" id="batchRunExplain"></div>
+                                    <div class="mb-3" id="batchLimitRow">
+                                        <label for="BatchMax" class="form-label">Limit (optional)</label>
+                                        <input type="number" class="form-control form-control-sm" id="BatchMax" min="1" placeholder="Run all">
+                                        <div class="form-text">Max scenarios to enqueue.</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="BatchSequential">
+                                            <label class="form-check-label" for="BatchSequential">Run one by one (sequential)</label>
+                                        </div>
+                                        <div class="form-text">Check for strict order; uncheck to allow parallel runs.</div>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="BatchHeaded">
+                                        <label class="form-check-label" for="BatchHeaded">Show browser</label>
+                                    </div>
+                                    <div class="small" id="batchRunResult"></div>
+                                </div>
                             </div>
                         </div>
-
-                        <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-success flex-grow-1" id="btnRun">Run UI Test</button>
-                            <button type="button" class="btn btn-outline-primary" onclick="showSaveModal()">Save Script</button>
+                        <div class="col-12 col-lg-6 col-xl-7 d-none" id="batch-right-panel">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-header py-2">
+                                    <h6 class="mb-0">Feature files &amp; scenarios</h6>
+                                </div>
+                                <div class="card-body overflow-auto" style="max-height: 420px;">
+                                    <div id="batchFilesContent" class="small">
+                                        <p class="text-muted mb-0">Select a feature file on the left to see its scenarios here, or "All feature files" to see the list.</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                    </form>
+                    </div>
+                    <div class="mt-3 d-none card border-primary" id="singleRunProgressPanel">
+                        <div class="card-header py-2 bg-light">
+                            <strong>Single test status</strong>
+                        </div>
+                        <div class="card-body small">
+                            <span id="singleRunProgressText">Queued. ID: —. Status: Pending.</span>
+                            <span class="ms-2 text-muted" id="singleRunProgressDetail"></span>
+                        </div>
+                    </div>
+                    <div class="mt-3 d-none card border-primary" id="batchProgressPanelTop">
+                        <div class="card-header py-2 bg-light d-flex justify-content-between align-items-center flex-wrap gap-1">
+                            <strong>Batch progress</strong>
+                            <span class="text-muted small fw-normal" id="batchProgressFeatureName"></span>
+                        </div>
+                        <div class="card-body small">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span id="batchProgressTextTop">—</span>
+                                <span id="batchProgressEstimateTop" class="text-muted"></span>
+                            </div>
+                            <div class="progress mb-2" style="height: 8px;">
+                                <div class="progress-bar" id="batchProgressBarTop" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+                            <div class="text-muted" id="batchProgressDetailTop">Completed: 0 passed, 0 failed. Running: 0. Remaining: 0.</div>
+                        </div>
+                    </div>
+                    <hr class="my-3">
+                    <div class="text-muted small">
+                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" onclick="switchToHistoryTab()">View execution history →</button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-8">
-            <div class="card">
-                <div class="card-header">
-                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                        <h5 class="mb-0">Execution History</h5>
-                        <div class="d-flex align-items-center gap-2">
-                            <label class="mb-0 small">Rows:</label>
-                            <select class="form-select form-select-sm" id="pageSizeSelect" style="width: auto;" onchange="changePageSize()">
-                                <option value="10" selected>10</option>
-                                <option value="25">25</option>
-                                <option value="50">50</option>
-                            </select>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="fetchResults()">Refresh</button>
-                        </div>
+        <div class="tab-pane fade" id="main-panel-history" role="tabpanel">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2 py-2">
+                    <h5 class="mb-0">Execution history <span class="text-muted fw-normal small" id="historyTotalCount"></span></h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <ul class="nav nav-pills nav-pills-card mb-0 me-2" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="history-tab-all" data-bs-toggle="tab" data-bs-target="#history-panel-all" type="button" role="tab">All</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="history-tab-single" data-bs-toggle="tab" data-bs-target="#history-panel-single" type="button" role="tab">Single run</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="history-tab-batch" data-bs-toggle="tab" data-bs-target="#history-panel-batch" type="button" role="tab">Batch run</button>
+                            </li>
+                        </ul>
+                        <label class="mb-0 small text-muted">Show</label>
+                        <select class="form-select form-select-sm" id="pageSizeSelect" style="width: auto;" onchange="changePageSize()">
+                            <option value="10" selected>10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="(isBatchTabActive() ? fetchBatchRuns(batchCurrentPage) : fetchResults())" title="Refresh">↻</button>
                     </div>
                 </div>
                 <div class="card-body p-0">
-                    <table class="table table-striped table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Time</th>
-                                <th>URL</th>
-                                <th>Status</th>
-                                <th>Duration</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="resultsBody">
-                            <!-- Results will be loaded here -->
-                        </tbody>
-                    </table>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="history-panel-all" role="tabpanel">
+                            <div id="resultsEmptyAll" class="text-center py-5 text-muted small">No runs yet.</div>
+                            <table class="table table-hover mb-0 align-middle d-none" id="resultsTableAll">
+                                <thead class="table-light"><tr><th>Type</th><th>ID</th><th>Time</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead>
+                                <tbody id="resultsBodyAll"></tbody>
+                            </table>
+                        </div>
+                        <div class="tab-pane fade" id="history-panel-single" role="tabpanel">
+                            <div id="resultsEmptySingle" class="text-center py-5 text-muted small">No single runs yet.</div>
+                            <table class="table table-hover mb-0 align-middle d-none" id="resultsTableSingle">
+                                <thead class="table-light"><tr><th>ID</th><th>Time</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead>
+                                <tbody id="resultsBodySingle"></tbody>
+                            </table>
+                        </div>
+                        <div class="tab-pane fade" id="history-panel-batch" role="tabpanel">
+                            <div id="resultsEmptyBatch" class="text-center py-5 text-muted small">No batch runs yet.</div>
+                            <div id="resultsBatchContainer" class="d-none p-3"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="card-footer d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <div class="small text-muted" id="paginationInfo">Showing 0 results</div>
+                <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2 small">
+                    <span class="text-muted" id="paginationInfo">—</span>
+                    <span class="text-muted" id="totalTokensSummary"></span>
                     <nav>
-                        <ul class="pagination pagination-sm mb-0" id="paginationControls">
-                            <!-- Prev/Next filled by JS -->
-                        </ul>
+                        <ul class="pagination pagination-sm mb-0" id="paginationControls"></ul>
                     </nav>
                 </div>
+            </div>
+            <div class="mt-2 small text-muted">
+                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" onclick="switchToRunTab()">← Run tests</button>
             </div>
         </div>
     </div>
@@ -122,6 +237,9 @@
 
           <dt class="col-sm-3">Duration</dt>
           <dd class="col-sm-9" id="modalDuration"></dd>
+
+          <dt class="col-sm-3">Tokens</dt>
+          <dd class="col-sm-9" id="modalTokens"></dd>
           
           <dt class="col-sm-3">Screenshot</dt>
           <dd class="col-sm-9" id="modalScreenshot"></dd>
@@ -133,17 +251,32 @@
         </dl>
         
         <hr>
-        
-        <h6>Error Log / Message</h6>
-            <textarea class="form-control" id="modalError" rows="5" readonly style="font-family: monospace; font-size: 0.9em;"></textarea>
-            <button class="btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-2" onclick="copyError()">Copy</button>
+        <h6 class="mb-2">Error log</h6>
+        <div class="d-flex justify-content-end mb-1">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="copyError()">Copy</button>
         </div>
+        <textarea class="form-control font-monospace small" id="modalError" rows="4" readonly></textarea>
 
-        <h6 class="mt-3">Execution Log (Steps & AI Reasoning)</h6>
-        <div class="position-relative">
-            <textarea class="form-control" id="modalReasoning" rows="10" readonly style="font-family: monospace; font-size: 0.9em; background-color: #f8f9fa;"></textarea>
-            <button class="btn btn-sm btn-outline-secondary position-absolute top-0 end-0 m-2" onclick="copyReasoning()">Copy</button>
+        <h6 class="mt-3 mb-2">Execution log (steps &amp; reasoning)</h6>
+        <div class="d-flex justify-content-end mb-1">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="copyReasoning()">Copy</button>
         </div>
+        <textarea class="form-control font-monospace small" id="modalReasoning" rows="8" readonly></textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Feature / Scenario content viewer modal -->
+<div class="modal fade" id="contentViewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="contentViewModalTitle">Content</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0">
+        <pre id="contentViewModalBody" class="mb-0 p-3 bg-light small font-monospace" style="white-space: pre-wrap; word-break: break-word; max-height: 70vh; overflow: auto;"></pre>
       </div>
     </div>
   </div>
@@ -175,9 +308,367 @@
     <script>
         let savedTestCases = [];
 
-        // Load test cases on page load
+        function switchToHistoryTab() {
+            const tabEl = document.getElementById('main-tab-history');
+            if (tabEl) { new bootstrap.Tab(tabEl).show(); }
+        }
+        function switchToRunTab() {
+            const tabEl = document.getElementById('main-tab-run');
+            if (tabEl) { new bootstrap.Tab(tabEl).show(); }
+        }
+
+        // Load test cases and feature files on page load
         document.addEventListener("DOMContentLoaded", () => {
             fetchSavedTests();
+            fetchFeatureFiles();
+        });
+
+        let batchScenariosCount = 0;
+        let featureFilesList = [];
+        let batchScenariosList = [];
+
+        async function fetchFeatureFiles() {
+            try {
+                const response = await fetch('/TestRunner/GetFeatureFiles');
+                if (response.ok) {
+                    const files = await response.json();
+                    featureFilesList = files;
+                    const select = document.getElementById('BatchFeaturePath');
+                    if (!select) return;
+                    select.innerHTML = '<option value="">— Select a file —</option><option value="__all__">All feature files</option>';
+                    files.forEach(f => {
+                        const opt = document.createElement('option');
+                        opt.value = f.relativePath;
+                        opt.textContent = f.relativePath || f.name;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error("Failed to fetch feature files", err);
+            }
+        }
+
+        function updateBatchRunButton() {
+            const path = document.getElementById('BatchFeaturePath').value;
+            const scenarioSel = document.getElementById('BatchScenario').value;
+            const btn = document.getElementById('btnBatchRun');
+            if (!path) { btn.disabled = true; return; }
+            if (path === '__all__') { btn.disabled = featureFilesList.length === 0; return; }
+            if (scenarioSel !== '') { btn.disabled = false; return; }
+            btn.disabled = batchScenariosCount === 0;
+        }
+
+        async function loadBatchScenarioCount() {
+            const path = document.getElementById('BatchFeaturePath').value;
+            const countEl = document.getElementById('batchScenarioCount');
+            const scenarioRow = document.getElementById('batchScenarioRow');
+            const scenarioSelect = document.getElementById('BatchScenario');
+            const btn = document.getElementById('btnBatchRun');
+            if (!path) {
+                countEl.textContent = 'Select a file or "All feature files".';
+                btn.disabled = true;
+                scenarioRow.classList.add('d-none');
+                renderBatchFilesPanel();
+                return;
+            }
+            if (path === '__all__') {
+                countEl.textContent = featureFilesList.length + ' feature file(s) will be run.';
+                countEl.title = 'Server loads every scenario from every file into one list (file 1, then file 2, …). Each scenario runs as its own test; use "Run one by one" to run them in order.';
+                document.getElementById('batchRunExplain').classList.remove('d-none');
+                document.getElementById('batchRunExplain').textContent = 'All scenarios from all files are enqueued (up to the server limit). Each runs as a separate test; order: first file’s scenarios, then second file’s, etc. Use "Run one by one" for strict order.';
+                btn.disabled = featureFilesList.length === 0;
+                scenarioRow.classList.add('d-none');
+                renderBatchFilesPanel();
+                return;
+            }
+            document.getElementById('batchRunExplain').classList.add('d-none');
+            scenarioRow.classList.remove('d-none');
+            countEl.textContent = 'Loading…';
+            renderBatchFilesPanel();
+            try {
+                const response = await fetch('/TestRunner/GetScenarios?path=' + encodeURIComponent(path));
+                if (response.ok) {
+                    const scenarios = await response.json();
+                    batchScenariosList = scenarios;
+                    batchScenariosCount = scenarios.length;
+                    countEl.textContent = batchScenariosCount + ' scenario(s) in this file.';
+                    scenarioSelect.innerHTML = '<option value="">All in this file</option>';
+                    scenarios.forEach((s, i) => {
+                        const opt = document.createElement('option');
+                        opt.value = String(i);
+                        opt.textContent = s.name || ('Scenario ' + (i + 1));
+                        scenarioSelect.appendChild(opt);
+                    });
+                    updateBatchRunButton();
+                    renderBatchFilesPanel();
+                } else {
+                    countEl.textContent = 'Could not load scenarios.';
+                    btn.disabled = true;
+                    renderBatchFilesPanel();
+                }
+            } catch (err) {
+                countEl.textContent = 'Error loading scenarios.';
+                btn.disabled = true;
+                renderBatchFilesPanel();
+            }
+        }
+
+        function renderBatchFilesPanel() {
+            const path = document.getElementById('BatchFeaturePath').value;
+            const contentEl = document.getElementById('batchFilesContent');
+            const panelEl = document.getElementById('batch-right-panel');
+            if (!contentEl) return;
+            if (path === '' || path === '__all__') {
+                if (featureFilesList.length === 0) {
+                    contentEl.innerHTML = '<p class="text-muted mb-0">No feature files found under Scenarios folder.</p>';
+                } else {
+                    let html = '<p class="text-muted small mb-2">' + featureFilesList.length + ' feature file(s) — click to view content:</p><ul class="list-group list-group-flush">';
+                    featureFilesList.forEach(f => {
+                        const rp = (f.relativePath || f.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        const rpAttr = (f.relativePath || f.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+                        html += '<li class="list-group-item py-1 px-2 small list-group-item-action cursor-pointer" style="cursor: pointer;" data-path="' + rpAttr + '" onclick="showFeatureContent(this.getAttribute(\'data-path\'))">' + rp + '</li>';
+                    });
+                    html += '</ul>';
+                    contentEl.innerHTML = html;
+                }
+            } else {
+                if (batchScenariosList.length === 0) {
+                    contentEl.innerHTML = '<p class="text-muted mb-0">Loading scenarios…</p>';
+                } else {
+                    let html = '<p class="text-muted small mb-2">Scenarios in <strong>' + path.replace(/</g, '&lt;') + '</strong> — click to view content:</p><ul class="list-group list-group-flush">';
+                    batchScenariosList.forEach((s, i) => {
+                        const nameEsc = (s.name || ('Scenario ' + (i + 1))).replace(/</g, '&lt;').replace(/&/g, '&amp;');
+                        html += '<li class="list-group-item py-1 px-2 small list-group-item-action cursor-pointer" style="cursor: pointer;" data-scenario-index="' + i + '" onclick="showScenarioContent(' + i + ')">' + (i + 1) + '. ' + nameEsc + '</li>';
+                    });
+                    html += '</ul>';
+                    contentEl.innerHTML = html;
+                }
+            }
+            if (panelEl && document.getElementById('tab-batch') && document.getElementById('tab-batch').classList.contains('active'))
+                panelEl.classList.remove('d-none');
+        }
+
+        async function showFeatureContent(relativePath) {
+            if (!relativePath) return;
+            const titleEl = document.getElementById('contentViewModalTitle');
+            const bodyEl = document.getElementById('contentViewModalBody');
+            if (!titleEl || !bodyEl) return;
+            titleEl.textContent = 'Feature: ' + relativePath;
+            bodyEl.textContent = 'Loading…';
+            const modal = new bootstrap.Modal(document.getElementById('contentViewModal'));
+            modal.show();
+            try {
+                const response = await fetch('/TestRunner/GetFeatureFileContent?path=' + encodeURIComponent(relativePath));
+                if (!response.ok) {
+                    bodyEl.textContent = 'Could not load file.';
+                    return;
+                }
+                const data = await response.json();
+                bodyEl.textContent = data.content ?? '';
+            } catch (e) {
+                bodyEl.textContent = 'Error loading content.';
+            }
+        }
+
+        function showScenarioContent(index) {
+            const titleEl = document.getElementById('contentViewModalTitle');
+            const bodyEl = document.getElementById('contentViewModalBody');
+            if (!titleEl || !bodyEl || !batchScenariosList || index < 0 || index >= batchScenariosList.length) return;
+            const s = batchScenariosList[index];
+            titleEl.textContent = 'Scenario: ' + (s.name || ('Scenario ' + (index + 1)));
+            bodyEl.textContent = (s.gherkinScript || s.GherkinScript || '').trim() || 'No content.';
+            const modal = new bootstrap.Modal(document.getElementById('contentViewModal'));
+            modal.show();
+        }
+
+        document.getElementById('tab-single').addEventListener('shown.bs.tab', function() {
+            document.getElementById('single-actions').classList.remove('d-none');
+            document.getElementById('batch-actions').classList.add('d-none');
+            document.getElementById('batch-right-panel').classList.add('d-none');
+        });
+        document.getElementById('tab-batch').addEventListener('shown.bs.tab', function() {
+            document.getElementById('single-actions').classList.add('d-none');
+            document.getElementById('batch-actions').classList.remove('d-none');
+            document.getElementById('batch-right-panel').classList.remove('d-none');
+            renderBatchFilesPanel();
+        });
+
+        let batchRunIdCurrent = null;
+        let batchProgressInterval = null;
+        let singleRunJobId = null;
+        let singleRunProgressInterval = null;
+
+        function updateBatchProgressUI(pct, textStr, detailStr, estStr) {
+            const bar = document.getElementById('batchProgressBarTop');
+            const text = document.getElementById('batchProgressTextTop');
+            const detail = document.getElementById('batchProgressDetailTop');
+            const est = document.getElementById('batchProgressEstimateTop');
+            if (bar) { bar.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct); }
+            if (text) text.textContent = textStr;
+            if (detail) detail.textContent = detailStr;
+            if (est) est.textContent = estStr || '';
+        }
+
+        async function pollBatchProgress() {
+            if (!batchRunIdCurrent) return;
+            try {
+                const response = await fetch('/TestRunner/GetBatchProgress?batchRunId=' + encodeURIComponent(batchRunIdCurrent));
+                if (!response.ok) return;
+                const p = await response.json();
+                const total = p.total || 0;
+                const completed = p.completed || 0;
+                const passed = p.passed || 0;
+                const failed = p.failed || 0;
+                const running = p.running || 0;
+                const pending = p.pending || 0;
+                const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+                const detailStr = 'Passed: ' + passed + ', Failed: ' + failed + '. Running: ' + running + '. Remaining: ' + pending + '.';
+                let estStr = '';
+                if (p.estimatedSecondsRemaining != null && p.estimatedSecondsRemaining > 0) {
+                    const sec = Math.round(p.estimatedSecondsRemaining);
+                    estStr = sec >= 60 ? '~' + Math.ceil(sec / 60) + ' min remaining' : '~' + sec + ' sec remaining';
+                }
+                if (total > 0 && completed >= total) {
+                    if (batchProgressInterval) { clearInterval(batchProgressInterval); batchProgressInterval = null; }
+                    updateBatchProgressUI(pct, 'Batch complete. ' + completed + ' of ' + total + ' completed.', detailStr, '');
+                    fetchResults();
+                } else {
+                    updateBatchProgressUI(pct, completed + ' of ' + total + ' completed', detailStr, estStr);
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        async function pollSingleRunProgress() {
+            if (singleRunJobId == null) return;
+            try {
+                const response = await fetch('/TestRunner/GetResult?id=' + singleRunJobId);
+                if (!response.ok) return;
+                const r = await response.json();
+                const statusText = r.statusText || ['Pending', 'Running', 'Passed', 'Failed'][r.status] || 'Pending';
+                document.getElementById('singleRunProgressText').textContent = 'ID: ' + r.id + ' — Status: ' + statusText + '.';
+                document.getElementById('singleRunProgressDetail').textContent = r.duration != null && r.duration !== '' ? 'Duration: ' + formatDuration(r.duration) : '';
+                if (r.status === 2 || r.status === 3) {
+                    if (singleRunProgressInterval) { clearInterval(singleRunProgressInterval); singleRunProgressInterval = null; }
+                    document.getElementById('singleRunProgressText').textContent = 'Complete. ID: ' + r.id + ' — ' + statusText + '.';
+                    document.getElementById('singleRunProgressDetail').textContent = r.duration != null && r.duration !== '' ? 'Duration: ' + formatDuration(r.duration) : '';
+                    fetchResults();
+                    setTimeout(switchToHistoryTab, 1500);
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        document.getElementById('BatchFeaturePath').addEventListener('change', loadBatchScenarioCount);
+        document.getElementById('BatchScenario').addEventListener('change', updateBatchRunButton);
+        document.getElementById('Url').addEventListener('input', updateBatchRunButton);
+
+        document.getElementById('btnBatchRun').addEventListener('click', async function() {
+            const path = document.getElementById('BatchFeaturePath').value;
+            const url = document.getElementById('Url').value;
+            const scenarioIndex = document.getElementById('BatchScenario').value;
+            if (!path || !url) {
+                document.getElementById('batchRunResult').textContent = 'Choose a feature file and set Target URL above.';
+                return;
+            }
+            const resultEl = document.getElementById('batchRunResult');
+            const btn = document.getElementById('btnBatchRun');
+            btn.disabled = true;
+            resultEl.textContent = 'Enqueuing...';
+            resultEl.classList.remove('text-success', 'text-danger');
+
+            try {
+                if (path !== '__all__' && scenarioIndex !== '') {
+                    const idx = parseInt(scenarioIndex, 10);
+                    if (batchScenariosList[idx]) {
+                        const singleData = {
+                            url: url,
+                            headed: document.getElementById('BatchHeaded').checked,
+                            gherkinScript: batchScenariosList[idx].gherkinScript
+                        };
+                        const response = await fetch('/TestRunner/TriggerTest', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(singleData)
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            resultEl.textContent = 'One scenario queued.';
+                            resultEl.classList.add('text-success');
+                            fetchResults();
+                            batchRunIdCurrent = null;
+                            if (batchProgressInterval) { clearInterval(batchProgressInterval); batchProgressInterval = null; }
+                            document.getElementById('batchProgressPanelTop').classList.add('d-none');
+                            var fnEl = document.getElementById('batchProgressFeatureName');
+                            if (fnEl) fnEl.textContent = '';
+                            singleRunJobId = data.jobId;
+                            document.getElementById('singleRunProgressPanel').classList.remove('d-none');
+                            document.getElementById('singleRunProgressText').textContent = 'Queued. ID: ' + data.jobId + ' — Status: Pending.';
+                            document.getElementById('singleRunProgressDetail').textContent = '';
+                            document.getElementById('singleRunProgressPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            pollSingleRunProgress();
+                            singleRunProgressInterval = setInterval(pollSingleRunProgress, 2000);
+                        } else {
+                            resultEl.textContent = 'Error: ' + (await response.text()) || response.statusText;
+                            resultEl.classList.add('text-danger');
+                        }
+                        btn.disabled = false;
+                        return;
+                    }
+                }
+
+                const maxVal = document.getElementById('BatchMax').value.trim();
+                const data = {
+                    baseUrl: url,
+                    maxScenarios: maxVal ? parseInt(maxVal, 10) : null,
+                    headed: document.getElementById('BatchHeaded').checked,
+                    sequential: document.getElementById('BatchSequential').checked
+                };
+                if (path === '__all__')
+                    data.featurePaths = featureFilesList.map(f => f.relativePath);
+                else
+                    data.featurePath = path;
+
+                const response = await fetch('/TestRunner/BatchRun', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    resultEl.textContent = (data.message || 'Enqueued ' + data.enqueued + ' scenario(s).');
+                    resultEl.classList.remove('text-danger');
+                    resultEl.classList.add('text-success');
+                    fetchResults();
+                    if (data.batchRunId) {
+                        if (batchProgressInterval) clearInterval(batchProgressInterval);
+                        singleRunJobId = null;
+                        if (singleRunProgressInterval) { clearInterval(singleRunProgressInterval); singleRunProgressInterval = null; }
+                        document.getElementById('singleRunProgressPanel').classList.add('d-none');
+                        batchRunIdCurrent = data.batchRunId;
+                        const featureNameEl = document.getElementById('batchProgressFeatureName');
+                        if (featureNameEl) {
+                            if (path === '__all__')
+                                featureNameEl.textContent = featureFilesList && featureFilesList.length > 1 ? featureFilesList.length + ' feature files' : 'All feature files';
+                            else
+                                featureNameEl.textContent = path || '';
+                        }
+                        document.getElementById('batchProgressPanelTop').classList.remove('d-none');
+                        document.getElementById('batchProgressPanelTop').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        pollBatchProgress();
+                        batchProgressInterval = setInterval(pollBatchProgress, 3000);
+                    } else {
+                        switchToHistoryTab();
+                    }
+                } else {
+                    const err = await response.text();
+                    resultEl.textContent = 'Error: ' + (err || response.statusText);
+                    resultEl.classList.add('text-danger');
+                }
+            } catch (err) {
+                resultEl.textContent = 'Request failed: ' + err.message;
+                resultEl.classList.add('text-danger');
+            } finally {
+                btn.disabled = false;
+            }
         });
 
         function handleFileUpload(event) {
@@ -310,8 +801,21 @@
                 });
 
                 if (response.ok) {
-                    // alert('Test Queued Successfully');
+                    const data = await response.json();
+                    const jobId = data.jobId;
                     fetchResults();
+                            batchRunIdCurrent = null;
+                            if (batchProgressInterval) { clearInterval(batchProgressInterval); batchProgressInterval = null; }
+                            document.getElementById('batchProgressPanelTop').classList.add('d-none');
+                            const fn = document.getElementById('batchProgressFeatureName');
+                            if (fn) fn.textContent = '';
+                    singleRunJobId = jobId;
+                    document.getElementById('singleRunProgressPanel').classList.remove('d-none');
+                    document.getElementById('singleRunProgressText').textContent = 'Queued. ID: ' + jobId + ' — Status: Pending.';
+                    document.getElementById('singleRunProgressDetail').textContent = '';
+                    document.getElementById('singleRunProgressPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    pollSingleRunProgress();
+                    singleRunProgressInterval = setInterval(pollSingleRunProgress, 2000);
                 } else {
                     alert('Error queuing test');
                 }
@@ -327,60 +831,392 @@
         let testResultsMap = {};
         let currentPage = 1;
         let totalCount = 0;
+        let currentPageSingle = 1;
+        let totalCountSingle = 0;
+        let batchCurrentPage = 1;
+        let batchTotalCount = 0;
+
+        function parseDurationToSeconds(dur) {
+            if (dur == null || dur === '') return 0;
+            const s = typeof dur === 'string' ? dur.trim() : String(dur);
+            if (!s) return 0;
+            if (typeof dur === 'number' && !isNaN(dur)) return dur;
+            const match = s.match(/^(?:(\d+):)?(?:(\d+):)?(\d+)(?:\.\d+)?$/);
+            if (match) {
+                const h = parseInt(match[1] || 0, 10);
+                const m = parseInt(match[2] || 0, 10);
+                const sec = parseFloat(match[3] || 0);
+                return h * 3600 + m * 60 + sec;
+            }
+            return 0;
+        }
+        function formatDuration(dur) {
+            if (dur == null || dur === '') return '—';
+            const totalSec = typeof dur === 'number' ? dur : parseDurationToSeconds(dur);
+            if (totalSec <= 0) {
+                const s = typeof dur === 'string' ? dur.trim() : String(dur);
+                return s && s.indexOf(':') >= 0 ? s.split('.')[0] : (s || '—');
+            }
+            if (totalSec < 60) return Math.floor(totalSec) + 's';
+            if (totalSec < 3600) {
+                const m = Math.floor(totalSec / 60);
+                const sec = Math.floor(totalSec % 60);
+                return sec > 0 ? m + 'm ' + sec + 's' : m + 'm';
+            }
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            const sec = Math.floor(totalSec % 60);
+            const parts = [];
+            if (h) parts.push(h + 'h');
+            if (m) parts.push(m + 'm');
+            if (sec || parts.length === 0) parts.push(sec + 's');
+            return parts.join(' ');
+        }
+        function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+        function getTestName(item, maxLen) {
+            const scenarioName = (item.scenarioName ?? item.ScenarioName ?? '').trim();
+            if (scenarioName) return (maxLen && scenarioName.length > maxLen) ? scenarioName.slice(0, maxLen) + '…' : scenarioName;
+            const script = (item.gherkinScript ?? item.GherkinScript ?? '').trim();
+            if (script) {
+                const lines = script.split(/\r?\n/);
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+                    if (/^Scenario(?: Outline)?:\s*/i.test(line)) {
+                        const name = line.replace(/^Scenario(?: Outline)?:\s*/i, '').trim();
+                        if (name) return (maxLen && name.length > maxLen) ? name.slice(0, maxLen) + '…' : name;
+                    }
+                    return (maxLen && line.length > maxLen) ? line.slice(0, maxLen) + '…' : line;
+                }
+            }
+            const url = item.url ?? item.Url ?? '';
+            return url ? ((maxLen && url.length > maxLen) ? url.slice(0, maxLen) + '…' : url) : '—';
+        }
 
         async function fetchResults(page) {
-            if (page != null) currentPage = page;
+            const singleOnly = isSingleRunTabActive();
+            if (page != null) { if (singleOnly) currentPageSingle = page; else currentPage = page; }
+            const pageToUse = singleOnly ? currentPageSingle : currentPage;
             try {
                 const pageSize = getPageSize();
-                const response = await fetch(`/TestRunner/GetResults?page=${currentPage}&pageSize=${pageSize}`);
+                const url = `/TestRunner/GetResults?page=${pageToUse}&pageSize=${pageSize}${singleOnly ? '&singleOnly=true' : ''}`;
+                const response = await fetch(url);
                 const data = await response.json();
-                const results = data.results || [];
-                totalCount = data.totalCount || 0;
-                currentPage = data.page || currentPage;
-                const tbody = document.getElementById('resultsBody');
-                tbody.innerHTML = '';
+                const results = data.results || data.Results || [];
+                if (singleOnly) {
+                    totalCountSingle = data.totalCount ?? data.TotalCount ?? 0;
+                    currentPageSingle = data.page ?? data.Page ?? currentPageSingle;
+                } else {
+                    totalCount = data.totalCount ?? data.TotalCount ?? 0;
+                    currentPage = data.page ?? data.Page ?? currentPage;
+                }
+                const totalTokensAllTime = data.totalTokensAllTime ?? 0;
+                const totalEl = document.getElementById('totalTokensSummary');
+                if (totalEl) totalEl.textContent = totalTokensAllTime > 0 ? 'Total tokens (all runs): ' + totalTokensAllTime.toLocaleString() : '';
                 testResultsMap = {};
-
                 results.forEach(item => {
-                    testResultsMap[item.id] = item; // Store for lookup
-
-                    let statusBadge = '';
-                    switch(item.status) { // Pending=0, Running=1, Passed=2, Failed=3
-                        case 0: statusBadge = '<span class="badge bg-secondary">Pending</span>'; break;
-                        case 1: statusBadge = '<span class="badge bg-warning text-dark">Running</span>'; break;
-                        case 2: statusBadge = '<span class="badge bg-success">Passed</span>'; break;
-                        case 3: statusBadge = '<span class="badge bg-danger">Failed</span>'; break;
-                    }
-
-                    const executedTime = new Date(item.runTime).toLocaleString();
-                    const duration = item.duration ? item.duration.split('.')[0] : '-';
-                    const urlEsc = (item.url || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    const row = `<tr>
-                        <td>${item.id}</td>
-                        <td>${executedTime}</td>
-                        <td class="text-truncate" style="max-width: 150px;" title="${urlEsc}">${urlEsc}</td>
-                        <td>${statusBadge}</td>
-                        <td>${duration}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-primary me-1" onclick="showDetails(${item.id})">Details</button>
-                            <button class="btn btn-sm btn-outline-success me-1" onclick="rerunResult(${item.id})">Re-run</button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="deleteResult(${item.id})">Delete</button>
-                        </td>
-                    </tr>`;
-                    tbody.innerHTML += row;
+                    const id = item.id ?? item.Id;
+                    if (id != null) testResultsMap[id] = item;
                 });
+
+                function statusBadge(item) {
+                    const status = item.status ?? item.Status;
+                    switch (status) {
+                        case 0: return '<span class="badge bg-secondary">Pending</span>';
+                        case 1: return '<span class="badge bg-warning text-dark">Running</span>';
+                        case 2: return '<span class="badge bg-success">Passed</span>';
+                        case 3: return '<span class="badge bg-danger">Failed</span>';
+                        default: return '<span class="badge bg-secondary">—</span>';
+                    }
+                }
+                // Support both camelCase and PascalCase from JSON (old records often have no batchRunId)
+                const getRunTime = (r) => r.runTime ?? r.RunTime;
+                const singles = singleOnly ? results : results.filter(r => !(r.batchRunId ?? r.BatchRunId));
+                const batchMap = {};
+                if (!singleOnly) {
+                    results.forEach(r => {
+                        const bid = r.batchRunId ?? r.BatchRunId;
+                        if (bid) {
+                            if (!batchMap[bid]) batchMap[bid] = [];
+                            batchMap[bid].push(r);
+                        }
+                    });
+                }
+                const batchGroups = Object.entries(batchMap).map(([bid, items]) => ({
+                    batchRunId: bid,
+                    items: items.sort((a, b) => new Date(getRunTime(b) || 0) - new Date(getRunTime(a) || 0))
+                }));
+                batchGroups.sort((a, b) => new Date(getRunTime(a.items[0]) || 0) - new Date(getRunTime(b.items[0]) || 0));
+                const singlesSorted = [...singles].sort((a, b) => new Date(getRunTime(b) || 0) - new Date(getRunTime(a) || 0));
+
+                // —— All tab: only when we fetched all (not singleOnly) ——
+                const emptyAll = document.getElementById('resultsEmptyAll');
+                const tableAll = document.getElementById('resultsTableAll');
+                const tbodyAll = document.getElementById('resultsBodyAll');
+                tbodyAll.innerHTML = '';
+                if (!singleOnly) {
+                    const allSorted = [...results].sort((a, b) => new Date(getRunTime(b) || 0) - new Date(getRunTime(a) || 0));
+                    if (allSorted.length === 0) {
+                        emptyAll.classList.remove('d-none');
+                        tableAll.classList.add('d-none');
+                        emptyAll.textContent = 'No runs yet. Run a single test or a batch to see results here.';
+                    } else {
+                        emptyAll.classList.add('d-none');
+                        tableAll.classList.remove('d-none');
+                        allSorted.forEach(item => {
+                            const id = item.id ?? item.Id;
+                            const runTime = item.runTime ?? item.RunTime;
+                            const executedTime = runTime ? new Date(runTime).toLocaleString() : '—';
+                            const duration = formatDuration(item.duration ?? item.Duration);
+                            const tokensVal = item.totalTokens ?? item.TotalTokens;
+                            const tokens = tokensVal != null ? Number(tokensVal).toLocaleString() : '-';
+                            const testName = getTestName(item, 80);
+                            const testNameEsc = esc(testName);
+                            const typeLabel = (item.batchRunId ?? item.BatchRunId) ? 'Batch' : 'Single';
+                            const typeClass = typeLabel === 'Batch' ? 'bg-primary' : 'bg-secondary';
+                            tbodyAll.innerHTML += `<tr>
+                                <td><span class="badge ${typeClass}">${typeLabel}</span></td>
+                                <td>${id}</td><td>${executedTime}</td><td class="text-truncate" style="max-width: 200px;" title="${testNameEsc}">${testNameEsc}</td>
+                                <td>${statusBadge(item)}</td><td>${duration}</td><td>${tokens}</td>
+                                <td><button class="btn btn-sm btn-outline-primary me-1" onclick="showDetails(${id})">Details</button>
+                                <button class="btn btn-sm btn-outline-success me-1" onclick="rerunResult(${id})">Re-run</button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteResult(${id})">Delete</button></td>
+                            </tr>`;
+                        });
+                    }
+                }
+
+                // —— Single run tab: always updated (singleOnly => full page of singles; !singleOnly => singles on this page) ——
+                const emptySingle = document.getElementById('resultsEmptySingle');
+                const tableSingle = document.getElementById('resultsTableSingle');
+                const tbodySingle = document.getElementById('resultsBodySingle');
+                tbodySingle.innerHTML = '';
+                const singleCount = singleOnly ? totalCountSingle : totalCount;
+                if (singlesSorted.length === 0) {
+                    emptySingle.classList.remove('d-none');
+                    tableSingle.classList.add('d-none');
+                    emptySingle.innerHTML = singleCount === 0
+                        ? 'No single runs yet. Run a single test to see results here.'
+                        : 'No single runs on this page. Use pagination below.';
+                } else {
+                    emptySingle.classList.add('d-none');
+                    tableSingle.classList.remove('d-none');
+                    singlesSorted.forEach(item => {
+                        const id = item.id ?? item.Id;
+                        const runTime = item.runTime ?? item.RunTime;
+                        const executedTime = runTime ? new Date(runTime).toLocaleString() : '—';
+                        const duration = formatDuration(item.duration ?? item.Duration);
+                        const tokensVal = item.totalTokens ?? item.TotalTokens;
+                        const tokens = tokensVal != null ? Number(tokensVal).toLocaleString() : '-';
+                        const testName = getTestName(item, 80);
+                        const testNameEsc = esc(testName);
+                        tbodySingle.innerHTML += `<tr>
+                            <td>${id}</td><td>${executedTime}</td><td class="text-truncate" style="max-width: 200px;" title="${testNameEsc}">${testNameEsc}</td>
+                            <td>${statusBadge(item)}</td><td>${duration}</td><td>${tokens}</td>
+                            <td><button class="btn btn-sm btn-outline-primary me-1" onclick="showDetails(${id})">Details</button>
+                            <button class="btn btn-sm btn-outline-success me-1" onclick="rerunResult(${id})">Re-run</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteResult(${id})">Delete</button></td>
+                        </tr>`;
+                    });
+                }
+
+                const historyTotalEl = document.getElementById('historyTotalCount');
+                const totalForLabel = singleOnly ? totalCountSingle : totalCount;
+                if (historyTotalEl) historyTotalEl.textContent = totalForLabel > 0 ? '(' + totalForLabel + ' total)' : '';
                 updatePaginationInfo();
                 renderPaginationControls();
             } catch (error) {
                 console.error('Error fetching results:', error);
             }
         }
+
+        async function fetchBatchRuns(page) {
+            if (page != null) batchCurrentPage = page;
+            try {
+                const pageSize = getPageSize();
+                const response = await fetch(`/TestRunner/GetBatchRuns?page=${batchCurrentPage}&pageSize=${pageSize}`);
+                const data = await response.json();
+                const batchRuns = data.batchRuns || data.BatchRuns || [];
+                batchTotalCount = data.totalBatchCount ?? data.TotalBatchCount ?? 0;
+                batchCurrentPage = data.page ?? data.Page ?? batchCurrentPage;
+                batchRuns.forEach(br => {
+                    (br.items || []).forEach(item => {
+                        const id = item.id ?? item.Id;
+                        if (id != null) testResultsMap[id] = item;
+                    });
+                });
+                function statusBadge(item) {
+                    const status = item.status ?? item.Status;
+                    switch (status) {
+                        case 0: return '<span class="badge bg-secondary">Pending</span>';
+                        case 1: return '<span class="badge bg-warning text-dark">Running</span>';
+                        case 2: return '<span class="badge bg-success">Passed</span>';
+                        case 3: return '<span class="badge bg-danger">Failed</span>';
+                        default: return '<span class="badge bg-secondary">—</span>';
+                    }
+                }
+                const expandedBatchIds = new Set();
+                const expandedFeatureKeys = new Set();
+                document.querySelectorAll('#resultsBatchContainer .batch-children-row').forEach(el => {
+                    if (!el.classList.contains('d-none')) { const bid = el.getAttribute('data-batch-id'); if (bid) expandedBatchIds.add(bid); }
+                });
+                document.querySelectorAll('#resultsBatchContainer .batch-feature-children').forEach(el => {
+                    if (!el.classList.contains('d-none')) { const key = el.getAttribute('data-feature-key'); if (key) expandedFeatureKeys.add(key); }
+                });
+                const emptyBatch = document.getElementById('resultsEmptyBatch');
+                const containerBatch = document.getElementById('resultsBatchContainer');
+                containerBatch.innerHTML = '';
+                if (batchRuns.length === 0) {
+                    emptyBatch.classList.remove('d-none');
+                    containerBatch.classList.add('d-none');
+                    emptyBatch.innerHTML = batchTotalCount === 0 ? 'No batch runs yet.' : 'No batch runs on this page. Use pagination below.';
+                } else {
+                    emptyBatch.classList.add('d-none');
+                    containerBatch.classList.remove('d-none');
+                    batchRuns.forEach((grp, batchIdx) => {
+                        const items = grp.items || [];
+                        const byFeature = {};
+                        items.forEach(r => {
+                            const fp = r.featurePath ?? r.FeaturePath ?? '—';
+                            if (!byFeature[fp]) byFeature[fp] = [];
+                            byFeature[fp].push(r);
+                        });
+                        const featureEntries = Object.entries(byFeature).sort((a, b) => a[0].localeCompare(b[0]));
+                        const n = items.length;
+                        const passed = items.filter(i => i.status === 2).length;
+                        const failed = items.filter(i => i.status === 3).length;
+                        const firstTime = items.length ? new Date(items[0].runTime ?? items[0].RunTime).toLocaleString() : '—';
+                        const batchStartMs = items.length ? Math.min(...items.map(i => new Date(i.runTime ?? i.RunTime).getTime())) : 0;
+                        const batchEndMs = items.length ? Math.max(...items.map(i => {
+                            const start = new Date(i.runTime ?? i.RunTime).getTime();
+                            const durSec = parseDurationToSeconds(i.duration ?? i.Duration);
+                            return start + durSec * 1000;
+                        })) : 0;
+                        const totalBatchSec = batchEndMs > batchStartMs ? (batchEndMs - batchStartMs) / 1000 : 0;
+                        const totalBatchTimeStr = totalBatchSec > 0 ? ' — Total time: ' + formatDuration(totalBatchSec) : '';
+                        const batchKey = 'b-' + batchIdx;
+                        const batchChildId = 'batch-child-' + batchKey;
+                        const isBatchExpanded = expandedBatchIds.has(grp.batchRunId);
+                        const featureLabel = featureEntries.length === 1 && featureEntries[0][0] !== '—'
+                            ? ' — ' + esc(featureEntries[0][0])
+                            : (featureEntries.length > 1 ? ' — ' + featureEntries.length + ' feature files' : '');
+                        let batchHtml = `<div class="border rounded mb-3" data-batch-id="${esc(grp.batchRunId)}">
+                            <div class="batch-header-row d-flex align-items-center px-3 py-2 bg-light cursor-pointer border-bottom" onclick="toggleBatchRow('${batchChildId}')" style="cursor: pointer;">
+                                <span class="batch-toggle me-2" id="toggle-${batchChildId}">${isBatchExpanded ? '▼' : '▶'}</span>
+                                <strong>Batch run</strong>${featureLabel}
+                                <span class="ms-2 text-muted">${n} scenario${n !== 1 ? 's' : ''} (${passed} passed, ${failed} failed) — ${firstTime}${totalBatchTimeStr}</span>
+                            </div>
+                            <div class="batch-children-row ${isBatchExpanded ? '' : 'd-none'}" id="${batchChildId}" data-batch-id="${esc(grp.batchRunId)}">`;
+                        featureEntries.forEach(([featurePath, itemsInFeature], fIdx) => {
+                            const featureKey = grp.batchRunId + '|' + featurePath;
+                            const featureChildId = 'feature-child-' + batchKey + '-' + fIdx;
+                            const isFeatureExpanded = expandedFeatureKeys.has(featureKey);
+                            const pf = itemsInFeature.filter(i => i.status === 2).length;
+                            const ff = itemsInFeature.filter(i => i.status === 3).length;
+                            batchHtml += `<div class="border-bottom">
+                                <div class="d-flex align-items-center px-3 py-2 bg-white cursor-pointer" onclick="event.stopPropagation(); toggleFeatureRow('${featureChildId}')" style="cursor: pointer;">
+                                    <span class="batch-toggle me-2" id="toggle-${featureChildId}">${isFeatureExpanded ? '▼' : '▶'}</span>
+                                    <span class="fw-medium">${esc(featurePath)}</span>
+                                    <span class="ms-2 small text-muted">${itemsInFeature.length} scenario${itemsInFeature.length !== 1 ? 's' : ''} (${pf} passed, ${ff} failed)</span>
+                                </div>
+                                <div class="batch-feature-children ${isFeatureExpanded ? '' : 'd-none'}" id="${featureChildId}" data-feature-key="${esc(featureKey)}">
+                                    <div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead class="table-light"><tr><th>ID</th><th>Time</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead><tbody class="feature-scenarios-tbody"></tbody></table></div>
+                                </div>
+                            </div>`;
+                        });
+                        batchHtml += '</div></div>';
+                        containerBatch.insertAdjacentHTML('beforeend', batchHtml);
+                        const batchBlock = containerBatch.lastElementChild;
+                        featureEntries.forEach(([featurePath, itemsInFeature], fIdx) => {
+                            const featureChildId = 'feature-child-' + batchKey + '-' + fIdx;
+                            const tbody = batchBlock.querySelector(`#${featureChildId} .feature-scenarios-tbody`);
+                            if (!tbody) return;
+                            itemsInFeature.forEach(item => {
+                                const scenarioName = (item.scenarioName ?? item.ScenarioName ?? '').trim();
+                                const testName = scenarioName || getTestName(item, 60);
+                                const testNameEsc = esc(testName);
+                                const duration = formatDuration(item.duration ?? item.Duration);
+                                const tokens = item.totalTokens != null ? item.totalTokens.toLocaleString() : '-';
+                                const itemId = item.id ?? item.Id;
+                                tbody.innerHTML += `<tr><td>${itemId}</td><td>${new Date(item.runTime ?? item.RunTime).toLocaleString()}</td><td class="text-truncate" style="max-width: 180px;" title="${testNameEsc}">${testNameEsc}</td><td>${statusBadge(item)}</td><td>${duration}</td><td>${tokens}</td><td>
+                                    <button class="btn btn-sm btn-outline-primary me-1" onclick="showDetails(${itemId})">Details</button>
+                                    <button class="btn btn-sm btn-outline-success me-1" onclick="rerunResult(${itemId})">Re-run</button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteResult(${itemId})">Delete</button>
+                                </td></tr>`;
+                            });
+                        });
+                    });
+                }
+                const historyTotalEl = document.getElementById('historyTotalCount');
+                if (historyTotalEl) historyTotalEl.textContent = batchTotalCount > 0 ? '(' + batchTotalCount + ' batch runs)' : '';
+                updatePaginationInfo();
+                renderPaginationControls();
+            } catch (error) {
+                console.error('Error fetching batch runs:', error);
+            }
+        }
+
+        function toggleBatchRow(childRowId) {
+            const row = document.getElementById(childRowId);
+            const toggle = document.getElementById('toggle-' + childRowId);
+            if (!row || !toggle) return;
+            row.classList.toggle('d-none');
+            toggle.textContent = row.classList.contains('d-none') ? '▶' : '▼';
+        }
+        function toggleFeatureRow(featureChildId) {
+            const row = document.getElementById(featureChildId);
+            const toggle = document.getElementById('toggle-' + featureChildId);
+            if (!row || !toggle) return;
+            row.classList.toggle('d-none');
+            toggle.textContent = row.classList.contains('d-none') ? '▶' : '▼';
+        }
         function getPageSize() { var sel = document.getElementById('pageSizeSelect'); return sel ? parseInt(sel.value, 10) : 10; }
-        function changePageSize() { currentPage = 1; fetchResults(); }
-        function updatePaginationInfo() { var ps = getPageSize(); var start = totalCount === 0 ? 0 : (currentPage - 1) * ps + 1; var end = Math.min(currentPage * ps, totalCount); var el = document.getElementById('paginationInfo'); if (el) el.textContent = totalCount === 0 ? 'No results' : 'Showing ' + start + '-' + end + ' of ' + totalCount; }
-        function renderPaginationControls() { var ps = getPageSize(); var totalPages = Math.max(1, Math.ceil(totalCount / ps)); var ul = document.getElementById('paginationControls'); if (!ul) return; ul.innerHTML = '<li class="page-item' + (currentPage <= 1 ? ' disabled' : '') + '"><a class="page-link" href="#" onclick="fetchResults(' + (currentPage - 1) + '); return false;">Previous</a></li><li class="page-item' + (currentPage >= totalPages ? ' disabled' : '') + '"><a class="page-link" href="#" onclick="fetchResults(' + (currentPage + 1) + '); return false;">Next</a></li>'; }
-        async function deleteResult(id) { if (!confirm('Delete this execution entry? Screenshot and video will be removed.')) return; try { var res = await fetch('/TestRunner/DeleteResult?id=' + id, { method: 'DELETE' }); if (res.ok) fetchResults(); else alert('Failed to delete.'); } catch (e) { alert('Error deleting.'); } }
-        async function rerunResult(id) { try { var res = await fetch('/TestRunner/RerunResult?id=' + id, { method: 'POST' }); if (res.ok) fetchResults(); else { var err = await res.json().catch(function() { return {}; }); alert(err.message || err.error || 'Re-run failed.'); } } catch (e) { alert('Error starting re-run.'); } }
+        function isBatchTabActive() { var t = document.getElementById('history-tab-batch'); return t && t.classList.contains('active'); }
+        function isSingleRunTabActive() { var t = document.getElementById('history-tab-single'); return t && t.classList.contains('active'); }
+        function changePageSize() {
+            currentPage = 1;
+            currentPageSingle = 1;
+            batchCurrentPage = 1;
+            if (isBatchTabActive()) fetchBatchRuns(1);
+            else fetchResults();
+        }
+        function updatePaginationInfo() {
+            var el = document.getElementById('paginationInfo');
+            if (!el) return;
+            if (isBatchTabActive()) {
+                var ps = getPageSize();
+                var start = batchTotalCount === 0 ? 0 : (batchCurrentPage - 1) * ps + 1;
+                var end = Math.min(batchCurrentPage * ps, batchTotalCount);
+                el.textContent = batchTotalCount === 0 ? 'No batch runs' : 'Showing ' + start + '-' + end + ' of ' + batchTotalCount + ' batch runs';
+            } else if (isSingleRunTabActive()) {
+                var ps = getPageSize();
+                var start = totalCountSingle === 0 ? 0 : (currentPageSingle - 1) * ps + 1;
+                var end = Math.min(currentPageSingle * ps, totalCountSingle);
+                el.textContent = totalCountSingle === 0 ? 'No single runs' : 'Showing ' + start + '-' + end + ' of ' + totalCountSingle + ' single runs';
+            } else {
+                var ps = getPageSize();
+                var start = totalCount === 0 ? 0 : (currentPage - 1) * ps + 1;
+                var end = Math.min(currentPage * ps, totalCount);
+                el.textContent = totalCount === 0 ? 'No results' : 'Showing ' + start + '-' + end + ' of ' + totalCount;
+            }
+        }
+        function renderPaginationControls() {
+            var ul = document.getElementById('paginationControls');
+            if (!ul) return;
+            var ps = getPageSize();
+            if (isBatchTabActive()) {
+                var totalPages = Math.max(1, Math.ceil(batchTotalCount / ps));
+                ul.innerHTML = '<li class="page-item' + (batchCurrentPage <= 1 ? ' disabled' : '') + '"><a class="page-link" href="#" onclick="fetchBatchRuns(' + (batchCurrentPage - 1) + '); return false;">Previous</a></li><li class="page-item' + (batchCurrentPage >= totalPages ? ' disabled' : '') + '"><a class="page-link" href="#" onclick="fetchBatchRuns(' + (batchCurrentPage + 1) + '); return false;">Next</a></li>';
+            } else if (isSingleRunTabActive()) {
+                var totalPages = Math.max(1, Math.ceil(totalCountSingle / ps));
+                ul.innerHTML = '<li class="page-item' + (currentPageSingle <= 1 ? ' disabled' : '') + '"><a class="page-link" href="#" onclick="fetchResults(' + (currentPageSingle - 1) + '); return false;">Previous</a></li><li class="page-item' + (currentPageSingle >= totalPages ? ' disabled' : '') + '"><a class="page-link" href="#" onclick="fetchResults(' + (currentPageSingle + 1) + '); return false;">Next</a></li>';
+            } else {
+                var totalPages = Math.max(1, Math.ceil(totalCount / ps));
+                ul.innerHTML = '<li class="page-item' + (currentPage <= 1 ? ' disabled' : '') + '"><a class="page-link" href="#" onclick="fetchResults(' + (currentPage - 1) + '); return false;">Previous</a></li><li class="page-item' + (currentPage >= totalPages ? ' disabled' : '') + '"><a class="page-link" href="#" onclick="fetchResults(' + (currentPage + 1) + '); return false;">Next</a></li>';
+            }
+        }
+        async function deleteResult(id) { if (!confirm('Delete this execution entry? Screenshot and video will be removed.')) return; try { var res = await fetch('/TestRunner/DeleteResult?id=' + id, { method: 'DELETE' }); if (res.ok) { fetchResults(); if (isBatchTabActive()) fetchBatchRuns(batchCurrentPage); } else alert('Failed to delete.'); } catch (e) { alert('Error deleting.'); } }
+        async function rerunResult(id) { try { var res = await fetch('/TestRunner/RerunResult?id=' + id, { method: 'POST' }); if (res.ok) { fetchResults(); if (isBatchTabActive()) fetchBatchRuns(batchCurrentPage); } else { var err = await res.json().catch(function() { return {}; }); alert(err.message || err.error || 'Re-run failed.'); } } catch (e) { alert('Error starting re-run.'); } }
         function showDetails(id) {
             const item = testResultsMap[id];
             if (!item) {
@@ -390,7 +1226,16 @@
             
             document.getElementById('modalId').innerText = item.id;
             document.getElementById('modalUrl').innerText = item.url;
-            document.getElementById('modalDuration').innerText = item.duration ? item.duration.split('.')[0] : '-';
+            document.getElementById('modalDuration').innerText = formatDuration(item.duration ?? item.Duration);
+            const tokensEl = document.getElementById('modalTokens');
+            if (item.totalTokens != null) {
+                const p = (item.promptTokens ?? 0).toLocaleString();
+                const c = (item.completionTokens ?? 0).toLocaleString();
+                const t = item.totalTokens.toLocaleString();
+                tokensEl.innerText = t + ' total (' + p + ' prompt + ' + c + ' completion)';
+            } else {
+                tokensEl.innerText = '-';
+            }
             document.getElementById('modalError').value = item.errorMessage || "No fatal errors.";
             
             // Show reasoning log if available
@@ -472,9 +1317,11 @@
             }
         }
 
-        // Poll every 3 seconds
-        setInterval(fetchResults, 3000);
-        
+        // Poll every 3 seconds (refresh current tab)
+        setInterval(function() { if (isBatchTabActive()) fetchBatchRuns(batchCurrentPage); else fetchResults(); }, 3000);
+        document.getElementById('history-tab-batch').addEventListener('shown.bs.tab', function() { fetchBatchRuns(batchCurrentPage); });
+        document.getElementById('history-tab-single').addEventListener('shown.bs.tab', function() { fetchResults(); });
+        document.getElementById('history-tab-all').addEventListener('shown.bs.tab', function() { fetchResults(); });
         // Initial load
         fetchResults();
     </script>

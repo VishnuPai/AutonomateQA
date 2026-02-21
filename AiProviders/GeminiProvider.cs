@@ -15,11 +15,13 @@ namespace UiTestRunner.AiProviders
     {
         private readonly IConfiguration _config;
         private readonly ILogger<GeminiProvider> _logger;
+        private readonly UiTestRunner.Services.ITestRunTokenTracker? _tokenTracker;
 
-        public GeminiProvider(IConfiguration config, ILogger<GeminiProvider> logger)
+        public GeminiProvider(IConfiguration config, ILogger<GeminiProvider> logger, UiTestRunner.Services.ITestRunTokenTracker? tokenTracker = null)
         {
             _config = config;
             _logger = logger;
+            _tokenTracker = tokenTracker;
         }
 
         public async Task<UiActionResponse> GetActionAsync(string gherkinStep, string ariaSnapshot, CancellationToken cancellationToken = default)
@@ -250,11 +252,18 @@ namespace UiTestRunner.AiProviders
                         if (response.IsSuccessStatusCode)
                         {
                             var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-                            return json.GetProperty("candidates")[0]
-                                       .GetProperty("content")
-                                       .GetProperty("parts")[0]
-                                       .GetProperty("text")
-                                       .GetString() ?? "";
+                            var text = json.GetProperty("candidates")[0]
+                                .GetProperty("content")
+                                .GetProperty("parts")[0]
+                                .GetProperty("text")
+                                .GetString() ?? "";
+                            if (_tokenTracker != null && json.TryGetProperty("usageMetadata", out var usage))
+                            {
+                                var p = usage.TryGetProperty("promptTokenCount", out var pt) ? pt.GetInt32() : 0;
+                                var c = usage.TryGetProperty("candidatesTokenCount", out var ct) ? ct.GetInt32() : 0;
+                                if (p > 0 || c > 0) _tokenTracker.AddUsage(p, c);
+                            }
+                            return text;
                         }
                         else if ((int)response.StatusCode == 429) // Too Many Requests
                         {

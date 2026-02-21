@@ -58,5 +58,17 @@ namespace UiTestRunner.Configuration
         /// Set to 0 to skip waiting for load state.
         /// </summary>
         public int WaitForLoadStateAfterClickMs { get; set; } = 5000;
+
+        /// <summary>
+        /// Maximum length (characters) of the Aria snapshot sent to the AI per step. Larger snapshots are truncated to reduce token usage.
+        /// Set to 0 to disable truncation (full snapshot sent). Default 8000; reduce to 5000–6000 to save more tokens (may cause failures).
+        /// </summary>
+        public int MaxAriaSnapshotLength { get; set; } = 8000;
+
+        /// <summary>
+        /// Max snapshot length for verification steps only (Then...). Verification often needs only header/top; use a smaller value to save tokens. 0 = use MaxAriaSnapshotLength.
+        /// Default 6000 so header elements (e.g. My Profile dropdown) are usually included; increase to 7000–8000 if "Then" steps still fail.
+        /// </summary>
+        public int MaxAriaSnapshotLengthForVerify { get; set; } = 6000;
     }
 }

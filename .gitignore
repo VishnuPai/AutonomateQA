@@ -27,7 +27,11 @@ build_output.txt
 [Dd]ebug/
 [Rr]elease/
 
-# Recorded test sessions (one-off; keep Scenarios/ for committed features)
+# Scenarios folder - ignore all except README.md
+Scenarios/*
+!Scenarios/README.md
+
+# Recorded test sessions (one-off)
 recorded_test_*.feature
 recorded_test_*.feature.cs
 

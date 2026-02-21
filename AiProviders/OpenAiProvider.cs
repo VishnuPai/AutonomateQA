@@ -11,11 +11,13 @@ namespace UiTestRunner.AiProviders
     {
         private readonly IConfiguration _config;
         private readonly ILogger<OpenAiProvider> _logger;
+        private readonly UiTestRunner.Services.ITestRunTokenTracker? _tokenTracker;
 
-        public OpenAiProvider(IConfiguration config, ILogger<OpenAiProvider> logger)
+        public OpenAiProvider(IConfiguration config, ILogger<OpenAiProvider> logger, UiTestRunner.Services.ITestRunTokenTracker? tokenTracker = null)
         {
             _config = config;
             _logger = logger;
+            _tokenTracker = tokenTracker;
         }
 
         public async Task<UiActionResponse> GetActionAsync(string gherkinStep, string ariaSnapshot, CancellationToken cancellationToken = default)
@@ -114,10 +116,17 @@ namespace UiTestRunner.AiProviders
                         if (response.IsSuccessStatusCode)
                         {
                             var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-                            return json.GetProperty("choices")[0]
-                                       .GetProperty("message")
-                                       .GetProperty("content")
-                                       .GetString() ?? "";
+                            var content = json.GetProperty("choices")[0]
+                                .GetProperty("message")
+                                .GetProperty("content")
+                                .GetString() ?? "";
+                            if (_tokenTracker != null && json.TryGetProperty("usage", out var usage))
+                            {
+                                var p = usage.TryGetProperty("prompt_tokens", out var pt) ? pt.GetInt32() : 0;
+                                var c = usage.TryGetProperty("completion_tokens", out var ct) ? ct.GetInt32() : 0;
+                                if (p > 0 || c > 0) _tokenTracker.AddUsage(p, c);
+                            }
+                            return content;
                         }
                         else if ((int)response.StatusCode == 429) // Too Many Requests
                         {

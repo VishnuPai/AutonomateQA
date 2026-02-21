@@ -7,7 +7,8 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 - **Generic Gherkin execution**: Paste or upload `.feature` content; steps like “I click the ‘Sign In’ button” are resolved from the page’s Aria snapshot.
 - **AI-driven locators**: The AI chooses the best selector (role, placeholder, text, or CSS from DOM hints) so tests stay resilient to minor UI changes.
 - **Recording**: Record a flow in the browser and save it as a Gherkin `.feature` file.
-- **Configurable**: Base URL, timeouts, AI provider, and scenario output path are driven by configuration.
+- **Batch run**: Run many scenarios from one or more `.feature` files under **Runner:ScenariosPath**. Use the **Batch Run** panel to select a feature file, load scenarios, and enqueue up to **Runner:BatchRunMaxPerRequest** (default 100) at once. For 40 feature files and 900 scenarios, run by file or increase the cap and use multiple feature paths (API only).
+- **Configurable**: Base URL, timeouts, AI provider, scenario path, and batch cap are driven by configuration.
 
 ## Prerequisites
 
@@ -54,14 +55,15 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 | Key | Description | Env override |
 |-----|-------------|--------------|
 | **Runner:BaseUrl** | Default URL shown in the runner UI | `Runner__BaseUrl` |
-| **Runner:ScenariosPath** | Folder (relative to app root) for saved recordings | `Runner__ScenariosPath` |
+| **Runner:ScenariosPath** | Folder (relative to app root) for saved recordings and batch-run feature files | `Runner__ScenariosPath` |
+| **Runner:BatchRunMaxPerRequest** | Max scenarios to enqueue per batch run request (default 100). Increase (e.g. 500) to run 900+ in one go. | `Runner__BatchRunMaxPerRequest` |
 | **AiProvider** | `OpenAI` or `Gemini` | `AiProvider` |
 | **OpenAI:ApiKey** | OpenAI API key | `OpenAI__ApiKey` |
 | **OpenAI:ActionModels**, **VerifyModels**, **GherkinModels** | Array of model names (e.g. `gpt-4o`, `gpt-4o-mini`) | `OpenAI__ActionModels__0`, etc. |
 | **Gemini:ApiKey** | Google AI Studio API key (optional if using VertexAI) | `Gemini__ApiKey` |
 | **Gemini:ActionModels**, **VerifyModels**, **GherkinModels** | Array of model names for REST API | `Gemini__ActionModels__0`, etc. |
 | **VertexAI:ProjectId**, **Location**, **ModelId** | Vertex AI settings (single model) | `VertexAI__*` |
-| **Playwright:NavigationTimeoutMs**, **InteractionTimeoutMs**, **PostActionDelayMs**, etc. | Timeouts and viewport | `Playwright__*` |
+| **Playwright:NavigationTimeoutMs**, **InteractionTimeoutMs**, **PostActionDelayMs**, **MaxAriaSnapshotLength**, etc. | Timeouts, viewport, and max Aria snapshot length (characters) sent to AI per step; set to 0 for no limit. Reduces token usage on complex pages. | `Playwright__*` |
 | **RateLimiting:WindowMinutes**, **PermitLimit** | Rate limit for triggering tests | `RateLimiting__*` |
 
 ## Project layout
@@ -80,6 +82,14 @@ To tailor the runner to your project (different steps, prompts, or DOM hints), s
 - Project-specific config and secrets  
 
 For a security and coding-standards review, see **[SECURITY_AND_STANDARDS.md](SECURITY_AND_STANDARDS.md)**.
+
+## Optimizing AI token usage
+
+Each step sends the current page’s Aria snapshot to the AI; on complex pages the snapshot can be very large and drive high prompt token usage.
+
+- **MaxAriaSnapshotLength** (default `10000`): The Aria snapshot sent to the AI is truncated to this many characters. Set in `Playwright:MaxAriaSnapshotLength` or `Playwright__MaxAriaSnapshotLength`. Use `0` to send the full snapshot. Values in the 8,000–12,000 range usually cut cost significantly while keeping enough context for header/main content.
+- **Shorter scenarios**: Splitting long scenarios into smaller ones reduces total steps and thus total tokens.
+- **Token usage per run**: The execution history and details modal show tokens per run and total across all runs so you can monitor cost.
 
 ## Database (app.db) and migrations
 

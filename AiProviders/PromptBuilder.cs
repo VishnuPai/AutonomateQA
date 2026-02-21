@@ -55,6 +55,7 @@ Rules for Verification:
 4. DOM IDENTIFIERS: If the snapshot includes ""[DOM identifiers present on page]"", use it when the Aria tree has no accessible name. Match ids or classes that semantically relate to the asserted element (e.g. cart, menu, nav, header).
 5. POSITION HINTS: Phrases like ""in the header"", ""on the right"" describe layout. If the element is present by name/role/DOM, return Passed=true. Do NOT fail solely because position cannot be verified.
 6. NEGATIVE ASSERTIONS: If the step says ""X is not shown"" or ""X is not present"", Passed=true when you CANNOT find any element that represents X. Passed=false if X (or a clear match) is present.
+7. PROFILE / USER MENU: Assertions like ""My Profile dropdown"", ""Profile menu"", ""user menu"" or ""account dropdown"" are satisfied if the snapshot shows ANY of: user name (e.g. a person's name), user/account avatar or image, ""account"" or ""profile"" link, combobox/menu with user context, or DOM identifiers like account, profile, user, usermenu. A header showing the logged-in user's name or avatar counts as the profile dropdown being ""shown"" (the control is present; dropdown state need not be open).
 
 Return ONLY a JSON object matching this schema:
 {

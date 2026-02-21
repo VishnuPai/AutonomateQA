@@ -46,6 +46,9 @@ builder.Services.AddScoped<IUiTestService, UiTestService>();
 builder.Services.AddScoped<IPlaywrightVisionService, PlaywrightVisionService>();
 builder.Services.AddScoped<ITestRecorderService, TestRecorderService>();
 builder.Services.AddScoped<ITestDataManager, TestDataManager>();
+builder.Services.AddScoped<ITestRunTokenTracker, TestRunTokenTracker>();
+builder.Services.AddScoped<IFeatureFileService, FeatureFileService>();
+builder.Services.AddTransient<UiTestRunner.Background.SequentialBatchJob>();
 
 var aiProvider = builder.Configuration["AiProvider"];
 if (string.Equals(aiProvider, "OpenAI", StringComparison.OrdinalIgnoreCase))
@@ -90,18 +93,35 @@ using (var scope = app.Services.CreateScope())
     // Replaces EnsureCreated() to allow incremental schema updates without dropping old data
     db.Database.Migrate();
 
-    // Ensure GherkinScript column exists (fixes "no such column: t.GherkinScript" if migration wasn't applied)
+    // Fallback: ensure columns exist if an older DB predates migrations. Use raw connection so we only ALTER when missing (avoids EF logging "fail" for duplicate column).
     try
     {
-        var hasColumn = db.Database.SqlQueryRaw<int>(
-            "SELECT COUNT(*) FROM pragma_table_info('TestResults') WHERE name='GherkinScript'").FirstOrDefault();
-        if (hasColumn == 0)
-            db.Database.ExecuteSqlRaw("ALTER TABLE TestResults ADD COLUMN GherkinScript TEXT NULL;");
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            conn.Open();
+        long HasColumn(string columnName)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TestResults') WHERE name='" + columnName.Replace("'", "''") + "'";
+            var v = cmd.ExecuteScalar();
+            return v is long l ? l : Convert.ToInt64(v ?? 0);
+        }
+        void AddColumnIfMissing(string name, string sql)
+        {
+            if (HasColumn(name) != 0) return;
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.ExecuteNonQuery();
+        }
+        AddColumnIfMissing("GherkinScript", "ALTER TABLE TestResults ADD COLUMN GherkinScript TEXT NULL");
+        AddColumnIfMissing("PromptTokens", "ALTER TABLE TestResults ADD COLUMN PromptTokens INTEGER NULL");
+        AddColumnIfMissing("CompletionTokens", "ALTER TABLE TestResults ADD COLUMN CompletionTokens INTEGER NULL");
+        AddColumnIfMissing("TotalTokens", "ALTER TABLE TestResults ADD COLUMN TotalTokens INTEGER NULL");
+        AddColumnIfMissing("BatchRunId", "ALTER TABLE TestResults ADD COLUMN BatchRunId TEXT NULL");
+        AddColumnIfMissing("FeaturePath", "ALTER TABLE TestResults ADD COLUMN FeaturePath TEXT NULL");
+        AddColumnIfMissing("ScenarioName", "ALTER TABLE TestResults ADD COLUMN ScenarioName TEXT NULL");
     }
-    catch (Exception)
-    {
-        // Ignore (e.g. non-SQLite or table not created yet)
-    }
+    catch (Exception) { /* Non-SQLite or table not created yet */ }
 }
 
 

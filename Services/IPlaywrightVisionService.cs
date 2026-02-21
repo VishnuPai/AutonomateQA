@@ -6,6 +6,7 @@ namespace UiTestRunner.Services
 {
     public interface IPlaywrightVisionService
     {
-        Task<string> GetCleanSnapshotAsync(IPage page, CancellationToken cancellationToken = default);
+        /// <param name="forVerification">When true, a smaller snapshot limit may be used (see Playwright:MaxAriaSnapshotLengthForVerify) to save tokens.</param>
+        Task<string> GetCleanSnapshotAsync(IPage page, bool forVerification = false, CancellationToken cancellationToken = default);
     }
 }

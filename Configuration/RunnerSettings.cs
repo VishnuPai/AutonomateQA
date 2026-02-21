@@ -20,5 +20,11 @@ namespace UiTestRunner.Configuration
         /// Example: "Scenarios"
         /// </summary>
         public string ScenariosPath { get; set; } = "";
+
+        /// <summary>
+        /// Maximum number of scenarios to enqueue in a single batch run request (default 100).
+        /// Use multiple batch requests or run by feature file to run 900+ scenarios.
+        /// </summary>
+        public int BatchRunMaxPerRequest { get; set; } = 100;
     }
 }
