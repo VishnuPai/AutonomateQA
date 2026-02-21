@@ -101,4 +101,4 @@ For a security and coding-standards review, see **[SECURITY_AND_STANDARDS.md](SE
 
 ## License
 
-Use and modify as needed for your project.
+AutonomateQA is licensed under the **MIT License**. See [LICENSE](LICENSE) for the full text. You may use, modify, and distribute it for your project under the terms of that license.
