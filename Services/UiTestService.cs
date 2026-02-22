@@ -72,8 +72,11 @@ namespace UiTestRunner.Services
             return result;
         }
 
-        public async Task<TestResult?> RunTestAsync(int testResultId, string url, bool headed = false, string? gherkinScript = null, CancellationToken cancellationToken = default)
+        public async Task<TestResult?> RunTestAsync(int testResultId, string url, bool headed = false, string? gherkinScript = null, string? testDataCsvPath = null, CancellationToken cancellationToken = default)
         {
+            if (!string.IsNullOrWhiteSpace(testDataCsvPath))
+                _testDataManager.LoadCsvForCurrentRun(testDataCsvPath);
+
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var testResult = await db.TestResults.FindAsync(testResultId);
@@ -224,8 +227,10 @@ namespace UiTestRunner.Services
                 currentStep = $"Executing Step: {step}";
                 _logger.LogInformation(currentStep);
 
-                // Determine if this is a verification step
-                bool isVerification = step.StartsWith(GherkinKeywords.Then, StringComparison.OrdinalIgnoreCase);
+                // Verification: Then steps, or any step that asserts visibility (e.g. "And Version is displayed")
+                bool isVerification = step.StartsWith(GherkinKeywords.Then, StringComparison.OrdinalIgnoreCase)
+                    || step.Contains(" is displayed", StringComparison.OrdinalIgnoreCase)
+                    || step.Contains(" is visible", StringComparison.OrdinalIgnoreCase);
 
                 if (isVerification)
                 {
@@ -445,10 +450,11 @@ namespace UiTestRunner.Services
         {
             ILocator locator;
             
-            // Try Role first
+            // Try Role first. For Link/Menuitem use non-exact name match so submenu items and labels with extra text (e.g. "Suppliers (5)") still match.
             if (Enum.TryParse<AriaRole>(action.SelectorType, true, out var role))
             {
-                locator = page.GetByRole(role, new PageGetByRoleOptions { Name = action.SelectorValue, Exact = true });
+                var useExact = role != AriaRole.Link && role != AriaRole.Menuitem;
+                locator = page.GetByRole(role, new PageGetByRoleOptions { Name = action.SelectorValue, Exact = useExact });
             }
             else if (string.Equals(action.SelectorType, SelectorTypes.Text, StringComparison.OrdinalIgnoreCase))
             {

@@ -6,6 +6,6 @@ namespace UiTestRunner.Services
 {
     public interface IUiTestService
     {
-        Task<TestResult?> RunTestAsync(int testResultId, string url, bool headed = false, string? gherkinScript = null, CancellationToken cancellationToken = default);
+        Task<TestResult?> RunTestAsync(int testResultId, string url, bool headed = false, string? gherkinScript = null, string? testDataCsvPath = null, CancellationToken cancellationToken = default);
     }
 }

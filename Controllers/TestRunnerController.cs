@@ -19,8 +19,9 @@ namespace UiTestRunner.Controllers
         private readonly ILogger<TestRunnerController> _logger;
         private readonly IWebHostEnvironment _env;
         private readonly IFeatureFileService _featureFileService;
+        private readonly IConfiguration _configuration;
 
-        public TestRunnerController(ApplicationDbContext context, IBackgroundJobClient backgroundJobClient, ITestRecorderService recorderService, Microsoft.Extensions.Options.IOptions<UiTestRunner.Configuration.RunnerSettings> runnerSettings, ILogger<TestRunnerController> logger, IWebHostEnvironment env, IFeatureFileService featureFileService)
+        public TestRunnerController(ApplicationDbContext context, IBackgroundJobClient backgroundJobClient, ITestRecorderService recorderService, Microsoft.Extensions.Options.IOptions<UiTestRunner.Configuration.RunnerSettings> runnerSettings, ILogger<TestRunnerController> logger, IWebHostEnvironment env, IFeatureFileService featureFileService, IConfiguration configuration)
         {
             _context = context;
             _backgroundJobClient = backgroundJobClient;
@@ -29,12 +30,31 @@ namespace UiTestRunner.Controllers
             _logger = logger;
             _env = env;
             _featureFileService = featureFileService;
+            _configuration = configuration;
         }
 
         public IActionResult Index()
         {
             ViewData["BaseUrl"] = _runnerSettings.BaseUrl ?? "";
             return View();
+        }
+
+        /// <summary>Returns configured environments for the UI dropdown (name, baseUrl, csvPath). Display name "PROD" for Production.</summary>
+        [HttpGet]
+        public IActionResult GetEnvironments()
+        {
+            var list = new List<object>();
+            var section = _configuration.GetSection("Environments");
+            if (!section.Exists()) return Json(list);
+            foreach (var child in section.GetChildren())
+            {
+                var key = child.Key;
+                var baseUrl = child["BaseUrl"]?.Trim() ?? "";
+                var csvPath = child["CsvPath"]?.Trim() ?? "";
+                var displayName = string.Equals(key, "Production", StringComparison.OrdinalIgnoreCase) ? "PROD" : key;
+                list.Add(new { name = key, displayName, baseUrl, csvPath });
+            }
+            return Json(list);
         }
 
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
@@ -57,19 +77,36 @@ namespace UiTestRunner.Controllers
                 return BadRequest("Invalid or blocked URL. Internal network targets are not permitted for security reasons.");
             }
 
+            if (FeatureFileService.ScriptHasIgnoreOrManualTag(model.GherkinScript))
+            {
+                return BadRequest("This scenario is tagged @ignore or @manual and cannot be run.");
+            }
+
             var testResult = new TestResult
             {
                 Url = model.Url,
                 GherkinScript = model.GherkinScript,
                 Status = TestStatus.Pending,
-                RunTime = DateTime.Now
+                RunTime = DateTime.Now,
+                Environment = !string.IsNullOrWhiteSpace(model.Environment) ? model.Environment.Trim() : null
             };
 
             _context.TestResults.Add(testResult);
             await _context.SaveChangesAsync();
 
+            string? testDataCsvPath = null;
+            if (!string.IsNullOrWhiteSpace(model.Environment))
+            {
+                var envKey = model.Environment.Trim();
+                testDataCsvPath = _configuration[$"Environments:{envKey}:CsvPath"]?.Trim();
+                if (string.IsNullOrEmpty(testDataCsvPath))
+                    _logger.LogWarning("Environment '{Env}' has no CsvPath configured; run will use default test data.", envKey);
+                else
+                    _logger.LogInformation("TriggerTest: using test data CSV for environment {Env}: {CsvPath}", envKey, testDataCsvPath);
+            }
+
             // Enqueue Hangfire Job
-            var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, model.Url, model.Headed, model.GherkinScript));
+            var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, model.Url, model.Headed, model.GherkinScript, testDataCsvPath));
 
             testResult.HangfireJobId = hangfireId;
             await _context.SaveChangesAsync();
@@ -353,20 +390,34 @@ namespace UiTestRunner.Controllers
                 var scenarios = await _featureFileService.GetScenariosAsync(p);
                 foreach (var s in scenarios)
                 {
-                    allScenarios.Add(new ScenarioItem { Name = s.Name, GherkinScript = s.GherkinScript, FeaturePath = p });
+                    allScenarios.Add(new ScenarioItem { Name = s.Name, GherkinScript = s.GherkinScript, FeaturePath = p, Tags = s.Tags });
                 }
             }
 
+            // Exclude @ignore and @manual from execution (they remain visible in Feature files & scenarios tab)
+            var runnable = allScenarios.Where(s => !HasIgnoreOrManualTag(s) && !FeatureFileService.ScriptHasIgnoreOrManualTag(s.GherkinScript)).ToList();
             var maxToRun = _runnerSettings.BatchRunMaxPerRequest;
             if (request.MaxScenarios.HasValue && request.MaxScenarios.Value > 0)
                 maxToRun = Math.Min(maxToRun, request.MaxScenarios.Value);
-            var toRun = allScenarios.Take(maxToRun).ToList();
+            var toRun = runnable.Take(maxToRun).ToList();
             var batchRunId = Guid.NewGuid().ToString("N")[..16];
 
+            string? testDataCsvPath = null;
+            if (!string.IsNullOrWhiteSpace(request.Environment))
+            {
+                var envKey = request.Environment.Trim();
+                testDataCsvPath = _configuration[$"Environments:{envKey}:CsvPath"]?.Trim();
+                if (string.IsNullOrEmpty(testDataCsvPath))
+                    _logger.LogWarning("Environment '{Env}' has no CsvPath configured; batch run will use default test data.", envKey);
+                else
+                    _logger.LogInformation("BatchRun: using test data CSV for environment {Env}: {CsvPath}", envKey, testDataCsvPath);
+            }
+
+            var environmentKey = !string.IsNullOrWhiteSpace(request.Environment) ? request.Environment.Trim() : null;
             if (request.Sequential)
             {
                 var scenarioPayload = toRun.Select(s => new ScenarioRunItem { Name = s.Name, GherkinScript = s.GherkinScript, FeaturePath = s.FeaturePath }).ToList();
-                _backgroundJobClient.Enqueue<SequentialBatchJob>(job => job.Execute(request.BaseUrl, request.Headed, scenarioPayload, batchRunId));
+                _backgroundJobClient.Enqueue<SequentialBatchJob>(job => job.Execute(request.BaseUrl, request.Headed, scenarioPayload, batchRunId, testDataCsvPath, environmentKey));
                 _logger.LogInformation("BatchRun enqueued sequential job with {Count} scenarios for {Url}, batchRunId={BatchRunId}", toRun.Count, request.BaseUrl, batchRunId);
                 return Ok(new { enqueued = toRun.Count, sequential = true, totalInFiles = allScenarios.Count, batchRunId, message = $"Enqueued 1 sequential batch ({toRun.Count} scenario(s)). Track progress below." });
             }
@@ -382,11 +433,12 @@ namespace UiTestRunner.Controllers
                     RunTime = DateTime.Now,
                     BatchRunId = batchRunId,
                     FeaturePath = item.FeaturePath,
-                    ScenarioName = item.Name
+                    ScenarioName = item.Name,
+                    Environment = environmentKey
                 };
                 _context.TestResults.Add(testResult);
                 await _context.SaveChangesAsync();
-                var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, request.BaseUrl, request.Headed, item.GherkinScript));
+                var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, request.BaseUrl, request.Headed, item.GherkinScript, testDataCsvPath));
                 testResult.HangfireJobId = hangfireId;
                 await _context.SaveChangesAsync();
                 enqueued++;
@@ -394,6 +446,17 @@ namespace UiTestRunner.Controllers
 
             _logger.LogInformation("BatchRun enqueued {Count} scenarios for {Url}, batchRunId={BatchRunId}", enqueued, request.BaseUrl, batchRunId);
             return Ok(new { enqueued, totalInFiles = allScenarios.Count, batchRunId, message = $"Enqueued {enqueued} scenario(s). Track progress below." });
+        }
+
+        private static bool HasIgnoreOrManualTag(ScenarioItem s)
+        {
+            if (s.Tags == null || s.Tags.Count == 0) return false;
+            foreach (var t in s.Tags)
+            {
+                if (string.Equals(t, "ignore", StringComparison.OrdinalIgnoreCase) || string.Equals(t, "manual", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
     }
 }

@@ -49,6 +49,10 @@ namespace UiTestRunner.Models
         [MaxLength(512)]
         public string? ScenarioName { get; set; }
 
+        /// <summary>Environment selected for this run (e.g. ST, SIT). Used for test data CSV; shown in history.</summary>
+        [MaxLength(64)]
+        public string? Environment { get; set; }
+
         /// <summary>AI prompt tokens used for this run (OpenAI/Gemini).</summary>
         public int? PromptTokens { get; set; }
 

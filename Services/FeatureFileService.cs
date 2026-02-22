@@ -103,6 +103,7 @@ public class FeatureFileService : IFeatureFileService
 
     /// <summary>
     /// Parses Gherkin lines into scenario blocks. Preserves Feature and optional Background before each scenario.
+    /// All scenarios are returned (including @ignore / @manual); filter at run time to exclude those from execution.
     /// </summary>
     internal static List<ScenarioItem> ParseScenarios(string[] lines)
     {
@@ -113,6 +114,7 @@ public class FeatureFileService : IFeatureFileService
         var inBackground = false;
         List<string>? currentScenario = null;
         string? currentScenarioName = null;
+        var scenarioTagLines = new List<string>();
 
         for (var i = 0; i < lines.Length; i++)
         {
@@ -127,6 +129,7 @@ public class FeatureFileService : IFeatureFileService
                 inBackground = false;
                 featureBlock.Clear();
                 backgroundBlock.Clear();
+                scenarioTagLines.Clear();
                 featureBlock.Add(line);
                 continue;
             }
@@ -135,7 +138,16 @@ public class FeatureFileService : IFeatureFileService
             {
                 inBackground = true;
                 backgroundBlock.Clear();
+                scenarioTagLines.Clear();
                 backgroundBlock.Add(line);
+                continue;
+            }
+
+            // Tag line: applies to the next Scenario/Scenario Outline. Flush current scenario first so we don't miss tags that appear after the previous scenario's steps.
+            if (trimmed.StartsWith("@", StringComparison.Ordinal))
+            {
+                FlushScenario();
+                scenarioTagLines.Add(line);
                 continue;
             }
 
@@ -144,7 +156,11 @@ public class FeatureFileService : IFeatureFileService
             {
                 FlushScenario();
                 currentScenarioName = scenarioMatch.Groups[2].Value.Trim();
-                currentScenario = new List<string> { line };
+                currentScenario = new List<string>();
+                foreach (var tagLine in scenarioTagLines)
+                    currentScenario.Add(tagLine);
+                currentScenario.Add(line);
+                scenarioTagLines.Clear();
                 continue;
             }
 
@@ -161,6 +177,7 @@ public class FeatureFileService : IFeatureFileService
         void FlushScenario()
         {
             if (currentScenario == null || string.IsNullOrWhiteSpace(currentScenarioName)) return;
+            var tags = GetTagNames(currentScenario);
             var script = new List<string>();
             if (featureBlock.Count > 0)
             {
@@ -176,12 +193,63 @@ public class FeatureFileService : IFeatureFileService
             result.Add(new ScenarioItem
             {
                 Name = currentScenarioName,
-                GherkinScript = string.Join(Environment.NewLine, script)
+                GherkinScript = string.Join(Environment.NewLine, script),
+                Tags = new List<string>(tags)
             });
             currentScenario = null;
             currentScenarioName = null;
         }
 
         return result;
+    }
+
+    /// <summary>Extracts tag names (without @) from scenario lines that start with @.</summary>
+    private static HashSet<string> GetTagNames(List<string> scenarioLines)
+    {
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in scenarioLines)
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("@", StringComparison.Ordinal)) continue;
+            var parts = trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var part in parts)
+            {
+                if (part.StartsWith("@", StringComparison.Ordinal))
+                    tags.Add(part.TrimStart('@'));
+            }
+        }
+        return tags;
+    }
+
+    /// <summary>Returns true if the Gherkin script contains @ignore or @manual on a tag line (so the scenario should not be run).</summary>
+    public static bool ScriptHasIgnoreOrManualTag(string? gherkinScript)
+    {
+        if (string.IsNullOrWhiteSpace(gherkinScript)) return false;
+        // Normalize line endings so split is reliable
+        var normalized = gherkinScript.Replace("\r\n", "\n").Replace("\r", "\n");
+        var lines = normalized.Split('\n');
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0 || !trimmed.StartsWith("@", StringComparison.Ordinal)) continue;
+            // Tag line: must contain @ignore or @manual as a tag (whole word after @)
+            if (ContainsIgnoreOrManualTag(trimmed)) return true;
+            var parts = trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var part in parts)
+            {
+                if (!part.StartsWith("@", StringComparison.Ordinal)) continue;
+                var tagName = part.TrimStart('@');
+                if (string.Equals(tagName, "ignore", StringComparison.OrdinalIgnoreCase) || string.Equals(tagName, "manual", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool ContainsIgnoreOrManualTag(string trimmedTagLine)
+    {
+        // Match @ignore or @manual as a tag (after @, word boundary)
+        return trimmedTagLine.IndexOf("@ignore", StringComparison.OrdinalIgnoreCase) >= 0
+            || trimmedTagLine.IndexOf("@manual", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 }

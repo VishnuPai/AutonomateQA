@@ -27,4 +27,8 @@ public class BatchRunRequest
 
     /// <summary>When true, run all scenarios one by one in a single job (sequential). When false, enqueue one job per scenario (parallel when workers allow).</summary>
     public bool Sequential { get; set; }
+
+    /// <summary>Optional environment key (e.g. ST, SIT). When set, test data CSV for the run is loaded from that environment.</summary>
+    [MaxLength(64)]
+    public string? Environment { get; set; }
 }

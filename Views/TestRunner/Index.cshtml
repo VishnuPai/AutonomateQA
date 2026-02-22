@@ -24,7 +24,14 @@
                         <div class="flex-grow-1 min-w-200">
                             <label for="Url" class="form-label fw-semibold mb-1">Target URL</label>
                             <input type="url" class="form-control" id="Url" required placeholder="@(string.IsNullOrEmpty(defaultUrl) ? "e.g. https://yourapp.com/login" : "")" value="@defaultUrl" title="URL of the application to test">
-                            <div class="form-text">Pre-filled from config when set; enter or change the URL to use for this run.</div>
+                            <div class="form-text">Pre-filled from config or when you select an environment; enter or change the URL to use for this run.</div>
+                        </div>
+                        <div class="min-w-120">
+                            <label for="Environment" class="form-label fw-semibold mb-1">Environment</label>
+                            <select class="form-select" id="Environment" aria-label="Select environment for test data and URL">
+                                <option value="">— None —</option>
+                            </select>
+                            <div class="form-text">Optional: pick an env to set URL and use that env's test data CSV for this run.</div>
                         </div>
                         <ul class="nav nav-tabs nav-tabs-card mb-0 me-2" role="tablist">
                             <li class="nav-item" role="presentation">
@@ -184,14 +191,14 @@
                         <div class="tab-pane fade show active" id="history-panel-all" role="tabpanel">
                             <div id="resultsEmptyAll" class="text-center py-5 text-muted small">No runs yet.</div>
                             <table class="table table-hover mb-0 align-middle d-none" id="resultsTableAll">
-                                <thead class="table-light"><tr><th>Type</th><th>ID</th><th>Time</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead>
+                                <thead class="table-light"><tr><th>Type</th><th>ID</th><th>Time</th><th>Env</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead>
                                 <tbody id="resultsBodyAll"></tbody>
                             </table>
                         </div>
                         <div class="tab-pane fade" id="history-panel-single" role="tabpanel">
                             <div id="resultsEmptySingle" class="text-center py-5 text-muted small">No single runs yet.</div>
                             <table class="table table-hover mb-0 align-middle d-none" id="resultsTableSingle">
-                                <thead class="table-light"><tr><th>ID</th><th>Time</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead>
+                                <thead class="table-light"><tr><th>ID</th><th>Time</th><th>Env</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead>
                                 <tbody id="resultsBodySingle"></tbody>
                             </table>
                         </div>
@@ -231,6 +238,9 @@
 
           <dt class="col-sm-3">URL</dt>
           <dd class="col-sm-9 text-break" id="modalUrl"></dd>
+
+          <dt class="col-sm-3">Environment</dt>
+          <dd class="col-sm-9" id="modalEnvironment"></dd>
 
           <dt class="col-sm-3">Status</dt>
           <dd class="col-sm-9" id="modalStatus"></dd>
@@ -318,9 +328,22 @@
         }
 
         // Load test cases and feature files on page load
+        let environmentsList = [];
         document.addEventListener("DOMContentLoaded", () => {
             fetchSavedTests();
             fetchFeatureFiles();
+            fetchEnvironments();
+            const envSelect = document.getElementById('Environment');
+            if (envSelect) {
+                envSelect.addEventListener('change', function() {
+                    const key = this.value;
+                    if (!key) return;
+                    const env = environmentsList.find(e => (e.name || e.Name) === key);
+                    if (env && (env.baseUrl || env.BaseUrl)) {
+                        document.getElementById('Url').value = (env.baseUrl || env.BaseUrl).trim();
+                    }
+                });
+            }
         });
 
         let batchScenariosCount = 0;
@@ -345,6 +368,27 @@
                 }
             } catch (err) {
                 console.error("Failed to fetch feature files", err);
+            }
+        }
+
+        async function fetchEnvironments() {
+            try {
+                const response = await fetch('/TestRunner/GetEnvironments');
+                if (response.ok) {
+                    const list = await response.json();
+                    environmentsList = list;
+                    const select = document.getElementById('Environment');
+                    if (!select) return;
+                    select.innerHTML = '<option value="">— None —</option>';
+                    list.forEach(env => {
+                        const opt = document.createElement('option');
+                        opt.value = env.name || '';
+                        opt.textContent = env.displayName || env.name || opt.value;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error("Failed to fetch environments", err);
             }
         }
 
@@ -579,10 +623,12 @@
                 if (path !== '__all__' && scenarioIndex !== '') {
                     const idx = parseInt(scenarioIndex, 10);
                     if (batchScenariosList[idx]) {
+                        const envVal = document.getElementById('Environment').value.trim() || null;
                         const singleData = {
                             url: url,
                             headed: document.getElementById('BatchHeaded').checked,
-                            gherkinScript: batchScenariosList[idx].gherkinScript
+                            gherkinScript: batchScenariosList[idx].gherkinScript,
+                            environment: envVal
                         };
                         const response = await fetch('/TestRunner/TriggerTest', {
                             method: 'POST',
@@ -607,7 +653,14 @@
                             pollSingleRunProgress();
                             singleRunProgressInterval = setInterval(pollSingleRunProgress, 2000);
                         } else {
-                            resultEl.textContent = 'Error: ' + (await response.text()) || response.statusText;
+                            const errBody = await response.text();
+                            let errMsg = errBody || response.statusText;
+                            try {
+                                const errJson = JSON.parse(errBody || '{}');
+                                if (errJson.title) errMsg = errJson.title;
+                                else if (typeof errJson === 'string') errMsg = errJson;
+                            } catch (_) {}
+                            resultEl.textContent = 'Error: ' + errMsg;
                             resultEl.classList.add('text-danger');
                         }
                         btn.disabled = false;
@@ -616,11 +669,13 @@
                 }
 
                 const maxVal = document.getElementById('BatchMax').value.trim();
+                const envVal = document.getElementById('Environment').value.trim() || null;
                 const data = {
                     baseUrl: url,
                     maxScenarios: maxVal ? parseInt(maxVal, 10) : null,
                     headed: document.getElementById('BatchHeaded').checked,
-                    sequential: document.getElementById('BatchSequential').checked
+                    sequential: document.getElementById('BatchSequential').checked,
+                    environment: envVal
                 };
                 if (path === '__all__')
                     data.featurePaths = featureFilesList.map(f => f.relativePath);
@@ -785,10 +840,12 @@
             btn.disabled = true;
             btn.innerText = "Queuing...";
 
+            const envVal = document.getElementById('Environment').value.trim() || null;
             const data = {
                 Url: document.getElementById('Url').value,
                 Headed: document.getElementById('Headed').checked,
-                GherkinScript: document.getElementById('GherkinScript').value
+                GherkinScript: document.getElementById('GherkinScript').value,
+                Environment: envVal
             };
 
             try {
@@ -974,9 +1031,10 @@
                             const testNameEsc = esc(testName);
                             const typeLabel = (item.batchRunId ?? item.BatchRunId) ? 'Batch' : 'Single';
                             const typeClass = typeLabel === 'Batch' ? 'bg-primary' : 'bg-secondary';
+                            const envDisplay = (item.environment ?? item.Environment ?? '').trim() || '—';
                             tbodyAll.innerHTML += `<tr>
                                 <td><span class="badge ${typeClass}">${typeLabel}</span></td>
-                                <td>${id}</td><td>${executedTime}</td><td class="text-truncate" style="max-width: 200px;" title="${testNameEsc}">${testNameEsc}</td>
+                                <td>${id}</td><td>${executedTime}</td><td>${esc(envDisplay)}</td><td class="text-truncate" style="max-width: 200px;" title="${testNameEsc}">${testNameEsc}</td>
                                 <td>${statusBadge(item)}</td><td>${duration}</td><td>${tokens}</td>
                                 <td><button class="btn btn-sm btn-outline-primary me-1" onclick="showDetails(${id})">Details</button>
                                 <button class="btn btn-sm btn-outline-success me-1" onclick="rerunResult(${id})">Re-run</button>
@@ -1010,8 +1068,9 @@
                         const tokens = tokensVal != null ? Number(tokensVal).toLocaleString() : '-';
                         const testName = getTestName(item, 80);
                         const testNameEsc = esc(testName);
+                        const envDisplay = (item.environment ?? item.Environment ?? '').trim() || '—';
                         tbodySingle.innerHTML += `<tr>
-                            <td>${id}</td><td>${executedTime}</td><td class="text-truncate" style="max-width: 200px;" title="${testNameEsc}">${testNameEsc}</td>
+                            <td>${id}</td><td>${executedTime}</td><td>${esc(envDisplay)}</td><td class="text-truncate" style="max-width: 200px;" title="${testNameEsc}">${testNameEsc}</td>
                             <td>${statusBadge(item)}</td><td>${duration}</td><td>${tokens}</td>
                             <td><button class="btn btn-sm btn-outline-primary me-1" onclick="showDetails(${id})">Details</button>
                             <button class="btn btn-sm btn-outline-success me-1" onclick="rerunResult(${id})">Re-run</button>
@@ -1120,7 +1179,7 @@
                                     <span class="ms-2 small text-muted">${itemsInFeature.length} scenario${itemsInFeature.length !== 1 ? 's' : ''} (${pf} passed, ${ff} failed)</span>
                                 </div>
                                 <div class="batch-feature-children ${isFeatureExpanded ? '' : 'd-none'}" id="${featureChildId}" data-feature-key="${esc(featureKey)}">
-                                    <div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead class="table-light"><tr><th>ID</th><th>Time</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead><tbody class="feature-scenarios-tbody"></tbody></table></div>
+                                    <div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead class="table-light"><tr><th>ID</th><th>Time</th><th>Env</th><th>Test name</th><th>Status</th><th>Duration</th><th>Tokens</th><th>Actions</th></tr></thead><tbody class="feature-scenarios-tbody"></tbody></table></div>
                                 </div>
                             </div>`;
                         });
@@ -1138,7 +1197,8 @@
                                 const duration = formatDuration(item.duration ?? item.Duration);
                                 const tokens = item.totalTokens != null ? item.totalTokens.toLocaleString() : '-';
                                 const itemId = item.id ?? item.Id;
-                                tbody.innerHTML += `<tr><td>${itemId}</td><td>${new Date(item.runTime ?? item.RunTime).toLocaleString()}</td><td class="text-truncate" style="max-width: 180px;" title="${testNameEsc}">${testNameEsc}</td><td>${statusBadge(item)}</td><td>${duration}</td><td>${tokens}</td><td>
+                                const envDisplay = (item.environment ?? item.Environment ?? '').trim() || '—';
+                                tbody.innerHTML += `<tr><td>${itemId}</td><td>${new Date(item.runTime ?? item.RunTime).toLocaleString()}</td><td>${esc(envDisplay)}</td><td class="text-truncate" style="max-width: 180px;" title="${testNameEsc}">${testNameEsc}</td><td>${statusBadge(item)}</td><td>${duration}</td><td>${tokens}</td><td>
                                     <button class="btn btn-sm btn-outline-primary me-1" onclick="showDetails(${itemId})">Details</button>
                                     <button class="btn btn-sm btn-outline-success me-1" onclick="rerunResult(${itemId})">Re-run</button>
                                     <button class="btn btn-sm btn-outline-danger" onclick="deleteResult(${itemId})">Delete</button>
@@ -1226,6 +1286,8 @@
             
             document.getElementById('modalId').innerText = item.id;
             document.getElementById('modalUrl').innerText = item.url;
+            const envVal = (item.environment ?? item.Environment ?? '').trim();
+            document.getElementById('modalEnvironment').innerText = envVal || '—';
             document.getElementById('modalDuration').innerText = formatDuration(item.duration ?? item.Duration);
             const tokensEl = document.getElementById('modalTokens');
             if (item.totalTokens != null) {

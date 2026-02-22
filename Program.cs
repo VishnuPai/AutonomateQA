@@ -10,6 +10,16 @@ using UiTestRunner.AiProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Optional: load AI Hub config from local file (gitignored; for local testing only)
+builder.Configuration.AddJsonFile("appsettings.AIHub.json", optional: true, reloadOnChange: false);
+// Optional: load environment-specific URLs (SIT, ST, etc.) so they override appsettings.json "Environments" section
+builder.Configuration.AddJsonFile("appsettings.SIT.json", optional: true, reloadOnChange: false);
+builder.Configuration.AddJsonFile("appsettings.ST.json", optional: true, reloadOnChange: false);
+builder.Configuration.AddJsonFile("appsettings.QA.json", optional: true, reloadOnChange: false);
+builder.Configuration.AddJsonFile("appsettings.SPP.json", optional: true, reloadOnChange: false);
+builder.Configuration.AddJsonFile("appsettings.PP.json", optional: true, reloadOnChange: false);
+builder.Configuration.AddJsonFile("appsettings.Production.json", optional: true, reloadOnChange: false);
+
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 
@@ -49,6 +59,8 @@ builder.Services.AddScoped<ITestDataManager, TestDataManager>();
 builder.Services.AddScoped<ITestRunTokenTracker, TestRunTokenTracker>();
 builder.Services.AddScoped<IFeatureFileService, FeatureFileService>();
 builder.Services.AddTransient<UiTestRunner.Background.SequentialBatchJob>();
+
+builder.Services.AddHttpClient();
 
 var aiProvider = builder.Configuration["AiProvider"];
 if (string.Equals(aiProvider, "OpenAI", StringComparison.OrdinalIgnoreCase))
@@ -120,6 +132,7 @@ using (var scope = app.Services.CreateScope())
         AddColumnIfMissing("BatchRunId", "ALTER TABLE TestResults ADD COLUMN BatchRunId TEXT NULL");
         AddColumnIfMissing("FeaturePath", "ALTER TABLE TestResults ADD COLUMN FeaturePath TEXT NULL");
         AddColumnIfMissing("ScenarioName", "ALTER TABLE TestResults ADD COLUMN ScenarioName TEXT NULL");
+        AddColumnIfMissing("Environment", "ALTER TABLE TestResults ADD COLUMN Environment TEXT NULL");
     }
     catch (Exception) { /* Non-SQLite or table not created yet */ }
 }

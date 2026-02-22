@@ -34,4 +34,6 @@ public class ScenarioItem
     public string GherkinScript { get; set; } = "";
     /// <summary>Set by caller when building list from a feature path.</summary>
     public string? FeaturePath { get; set; }
+    /// <summary>Scenario tags (e.g. ignore, manual) without @. Used to hide from execution while still showing in the UI.</summary>
+    public IReadOnlyList<string> Tags { get; set; } = Array.Empty<string>();
 }

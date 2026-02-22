@@ -19,7 +19,7 @@ public class SequentialBatchJob
     }
 
     [AutomaticRetry(Attempts = 0)]
-    public async Task Execute(string baseUrl, bool headed, List<ScenarioRunItem> scenarios, string? batchRunId, CancellationToken cancellationToken = default)
+    public async Task Execute(string baseUrl, bool headed, List<ScenarioRunItem> scenarios, string? batchRunId, string? testDataCsvPath = null, string? environment = null, CancellationToken cancellationToken = default)
     {
         if (scenarios == null || scenarios.Count == 0)
             return;
@@ -39,7 +39,8 @@ public class SequentialBatchJob
                     RunTime = DateTime.Now,
                     BatchRunId = batchRunId,
                     FeaturePath = item.FeaturePath,
-                    ScenarioName = item.Name
+                    ScenarioName = item.Name,
+                    Environment = environment
                 });
             }
             db.TestResults.AddRange(results);
@@ -52,7 +53,7 @@ public class SequentialBatchJob
             using var scope = _serviceProvider.CreateScope();
             var uiTestService = scope.ServiceProvider.GetRequiredService<IUiTestService>();
             var item = scenarios[i];
-            await uiTestService.RunTestAsync(resultIds[i], baseUrl, headed, item.GherkinScript, cancellationToken);
+            await uiTestService.RunTestAsync(resultIds[i], baseUrl, headed, item.GherkinScript, testDataCsvPath, cancellationToken);
         }
     }
 }

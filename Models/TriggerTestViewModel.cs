@@ -13,5 +13,9 @@ namespace UiTestRunner.Models
         
         [MaxLength(100_000)]
         public string? GherkinScript { get; set; }
+
+        /// <summary>Optional environment key (e.g. ST, SIT). When set, test data CSV for this run is loaded from that environment.</summary>
+        [MaxLength(64)]
+        public string? Environment { get; set; }
     }
 }
