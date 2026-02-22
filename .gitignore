@@ -2,6 +2,13 @@
 test_secrets.json
 **/test_secrets.json
 appsettings.*.local.json
+appsettings.AIHub.json
+appsettings.SIT.json
+appsettings.ST.json
+appsettings.QA.json
+appsettings.SPP.json
+appsettings.PP.json
+appsettings.Production.json
 
 # Build outputs
 bin/
@@ -31,6 +38,14 @@ build_output.txt
 Scenarios/*
 !Scenarios/README.md
 
+# Test data (CSVs may contain credentials per env)
+TestData/
+
+# Local reference and optional docs (do not push)
+CHANGES_SINCE_LAST_COMMIT.md
+ENVIRONMENT_SETUP.md
+docs/
+
 # Recorded test sessions (one-off)
 recorded_test_*.feature
 recorded_test_*.feature.cs
@@ -52,12 +67,14 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
-# Test results
+# Test results and test project build
 [Tt]est[Rr]esult*/
 [Cc]overage/
 *.trx
 *.coverage
 *.coveragexml
+UiTestRunner.Tests/bin/
+UiTestRunner.Tests/obj/
 
 # Test run artifacts (screenshots/videos from runner)
 wwwroot/screenshots/
