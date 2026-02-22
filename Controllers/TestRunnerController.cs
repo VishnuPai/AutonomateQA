@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -88,7 +89,7 @@ namespace UiTestRunner.Controllers
                 GherkinScript = model.GherkinScript,
                 Status = TestStatus.Pending,
                 RunTime = DateTime.Now,
-                Environment = !string.IsNullOrWhiteSpace(model.Environment) ? model.Environment.Trim() : null
+                Environment = !string.IsNullOrWhiteSpace(model.Environment) ? model.Environment!.Trim() : null
             };
 
             _context.TestResults.Add(testResult);
@@ -230,12 +231,19 @@ namespace UiTestRunner.Controllers
                 Url = existing.Url,
                 GherkinScript = existing.GherkinScript,
                 Status = TestStatus.Pending,
-                RunTime = DateTime.Now
+                RunTime = DateTime.Now,
+                Environment = existing.Environment
             };
             _context.TestResults.Add(testResult);
             await _context.SaveChangesAsync();
 
-            var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, testResult.Url, false, testResult.GherkinScript));
+            string? testDataCsvPath = null;
+            if (!string.IsNullOrWhiteSpace(existing.Environment))
+            {
+                var envKey = existing.Environment.Trim();
+                testDataCsvPath = _configuration[$"Environments:{envKey}:CsvPath"]?.Trim();
+            }
+            var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, testResult.Url, false, testResult.GherkinScript, testDataCsvPath));
             testResult.HangfireJobId = hangfireId;
             await _context.SaveChangesAsync();
 
@@ -416,7 +424,13 @@ namespace UiTestRunner.Controllers
             var environmentKey = !string.IsNullOrWhiteSpace(request.Environment) ? request.Environment.Trim() : null;
             if (request.Sequential)
             {
-                var scenarioPayload = toRun.Select(s => new ScenarioRunItem { Name = s.Name, GherkinScript = s.GherkinScript, FeaturePath = s.FeaturePath }).ToList();
+                var scenarioPayload = toRun.Select(s => new ScenarioRunItem
+                {
+                    Name = s.Name,
+                    GherkinScript = s.GherkinScript,
+                    FeaturePath = s.FeaturePath,
+                    TestDataCsvPath = ResolveCsvPath(environmentKey, s.FeaturePath, testDataCsvPath)
+                }).ToList();
                 _backgroundJobClient.Enqueue<SequentialBatchJob>(job => job.Execute(request.BaseUrl, request.Headed, scenarioPayload, batchRunId, testDataCsvPath, environmentKey));
                 _logger.LogInformation("BatchRun enqueued sequential job with {Count} scenarios for {Url}, batchRunId={BatchRunId}", toRun.Count, request.BaseUrl, batchRunId);
                 return Ok(new { enqueued = toRun.Count, sequential = true, totalInFiles = allScenarios.Count, batchRunId, message = $"Enqueued 1 sequential batch ({toRun.Count} scenario(s)). Track progress below." });
@@ -438,7 +452,8 @@ namespace UiTestRunner.Controllers
                 };
                 _context.TestResults.Add(testResult);
                 await _context.SaveChangesAsync();
-                var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, request.BaseUrl, request.Headed, item.GherkinScript, testDataCsvPath));
+                var resolvedCsvPath = ResolveCsvPath(environmentKey, item.FeaturePath, testDataCsvPath);
+                var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, request.BaseUrl, request.Headed, item.GherkinScript, resolvedCsvPath));
                 testResult.HangfireJobId = hangfireId;
                 await _context.SaveChangesAsync();
                 enqueued++;
@@ -446,6 +461,26 @@ namespace UiTestRunner.Controllers
 
             _logger.LogInformation("BatchRun enqueued {Count} scenarios for {Url}, batchRunId={BatchRunId}", enqueued, request.BaseUrl, batchRunId);
             return Ok(new { enqueued, totalInFiles = allScenarios.Count, batchRunId, message = $"Enqueued {enqueued} scenario(s). Track progress below." });
+        }
+
+        /// <summary>
+        /// If environment and feature path are set, tries TestData/{FeatureName}.{Environment}.VTS.csv (e.g. BaldoLogin.SIT.VTS.csv).
+        /// Returns that path when the file exists; otherwise returns the environment default.
+        /// </summary>
+        private string? ResolveCsvPath(string? environmentKey, string? featurePath, string? defaultCsvPath)
+        {
+            if (string.IsNullOrWhiteSpace(environmentKey) || string.IsNullOrWhiteSpace(featurePath))
+                return defaultCsvPath;
+            var featureName = Path.GetFileNameWithoutExtension(featurePath.Trim());
+            if (string.IsNullOrEmpty(featureName)) return defaultCsvPath;
+            var candidatePath = $"TestData/{featureName}.{environmentKey.Trim()}.VTS.csv";
+            var fullPath = Path.Combine(_env.ContentRootPath ?? "", candidatePath);
+            if (System.IO.File.Exists(fullPath))
+            {
+                _logger.LogInformation("Using feature-specific test data CSV: {CsvPath}", candidatePath);
+                return candidatePath;
+            }
+            return defaultCsvPath;
         }
 
         private static bool HasIgnoreOrManualTag(ScenarioItem s)

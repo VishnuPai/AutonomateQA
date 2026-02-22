@@ -8,7 +8,7 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 - **AI-driven locators**: The AI chooses the best selector (role, placeholder, text, or CSS from DOM hints) so tests stay resilient to minor UI changes.
 - **Recording**: Record a flow in the browser and save it as a Gherkin `.feature` file.
 - **Batch run**: Run many scenarios from one or more `.feature` files under **Runner:ScenariosPath**. Use the **Batch Run** panel to select a feature file (or “All feature files”), load scenarios, and enqueue up to **Runner:BatchRunMaxPerRequest** (default 100) per request. For larger sets, run by file, increase the cap in config, or use multiple feature paths via the API.
-- **Environment selection**: Choose an environment (e.g. ST, SIT, QA) in the UI; the target URL is filled from config and test data (e.g. credentials) is loaded from that environment’s CSV for the run. Execution history and result details show which environment was used.
+- **Environment selection**: Choose an environment (e.g. ST, SIT, QA) in the UI; the target URL is filled from that environment’s **BaseUrl** and test data (e.g. credentials) is loaded from that environment’s CSV. Execution history and result details show which environment was used. **Feature-specific CSV**: when you run a feature (e.g. BaldoLogin) with an environment (e.g. SIT), the app looks for `TestData/{FeatureName}.{Environment}.VTS.csv` (e.g. `TestData/BaldoLogin.SIT.VTS.csv`); if that file exists it is used for that run, otherwise the environment’s default CSV (e.g. `Header.SIT.VTS.csv`) is used. **Re-run** uses the original run’s environment and that environment’s CSV when available.
 - **@ignore / @manual**: Scenarios tagged with `@ignore` or `@manual` appear in the Feature files & scenarios tab but are **excluded from execution** (single run and batch run). Use these tags to keep scenarios visible without running them.
 - **Verification steps**: Steps that contain “ is displayed” or “ is visible” (e.g. “And Version is displayed”) are treated as **verification**: the AI checks the page snapshot instead of performing an action, which avoids timeouts when the text is inside a version/build element.
 - **Configurable**: Base URL, timeouts, AI provider, scenario path, batch cap, and **all OpenAI/Gemini endpoints and model names** are driven by configuration (no hardcoded API URLs or model names in code).
@@ -45,14 +45,14 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
      `dotnet user-secrets set "TestSecrets:Username" "your_user"`  
      `dotnet user-secrets set "TestSecrets:Password" "your_pass"`  
      Use the same `TestSecrets:KeyName` pattern for any placeholder your Gherkin uses (e.g. `{{Username}}`, `{{Password}}`).
-   - **Per-environment test data**: Use the **Environment** dropdown in the UI (ST, SIT, QA, etc.); each environment’s **Environments:{Env}:CsvPath** in `appsettings.json` points to a CSV (e.g. `TestData/Header.ST.VTS.csv`) with credentials for that env. See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md).
+   - **Per-environment test data**: Use the **Environment** dropdown in the UI (ST, SIT, QA, etc.); each environment’s **Environments:{Env}:CsvPath** in `appsettings.json` points to a default CSV (e.g. `TestData/Header.ST.VTS.csv`) for that env. You can add **feature-specific** CSVs named `TestData/{FeatureName}.{Environment}.VTS.csv` (e.g. `TestData/BaldoLogin.SIT.VTS.csv`); when that file exists, it is used for runs of that feature in that environment instead of the default. See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md).
    - **Fallback**: Add a `test_secrets.json` in the project root (do not commit). Format: `{ "Username": "…", "Password": "…" }`. See [CUSTOMIZATION.md](CUSTOMIZATION.md) for more.
 
 5. **Run**
    ```bash
    dotnet run
    ```
-   Open the app in the browser (e.g. `https://localhost:5001`), go to the AutonomateQA (Test Runner) page, optionally select an **Environment** (to auto-fill URL and use that env’s test data CSV), enter or confirm the target URL, paste or upload a Gherkin script (or leave empty for a default flow), and run.
+   Open the app in the browser (e.g. `https://localhost:5001`), go to the AutonomateQA (Test Runner) page. The **Target URL** is empty until you select an **Environment** (which fills the URL from config) or type a URL; a URL is required to run. Optionally select an **Environment** to use that env’s test data CSV (and feature-specific CSV when available). Paste or upload a Gherkin script (or leave empty for a default flow), then run.
 
 ## Configuration reference
 

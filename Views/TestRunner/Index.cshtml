@@ -1,7 +1,6 @@
 @{
     ViewData["Title"] = "AutonomateQA";
-    var baseUrlFromConfig = ViewData["BaseUrl"]?.ToString();
-    var defaultUrl = baseUrlFromConfig ?? "";
+    // Target URL is left empty on load; it is filled when user selects an Environment.
 }
 
 <div class="container-fluid mt-3 mt-md-4">
@@ -23,8 +22,9 @@
                     <div class="d-flex flex-wrap align-items-end gap-3 mb-3 pb-3 border-bottom">
                         <div class="flex-grow-1 min-w-200">
                             <label for="Url" class="form-label fw-semibold mb-1">Target URL</label>
-                            <input type="url" class="form-control" id="Url" required placeholder="@(string.IsNullOrEmpty(defaultUrl) ? "e.g. https://yourapp.com/login" : "")" value="@defaultUrl" title="URL of the application to test">
-                            <div class="form-text">Pre-filled from config or when you select an environment; enter or change the URL to use for this run.</div>
+                            <input type="url" class="form-control" id="Url" required placeholder="e.g. https://yourapp.com/login — or select an Environment below" value="" title="URL of the application to test" aria-describedby="Url-invalid-feedback Url-help">
+                            <div class="invalid-feedback" id="Url-invalid-feedback">Target URL is required. Enter a URL above or select an Environment.</div>
+                            <div class="form-text" id="Url-help">Pre-filled when you select an environment; enter or change the URL to use for this run.</div>
                         </div>
                         <div class="min-w-120">
                             <label for="Environment" class="form-label fw-semibold mb-1">Environment</label>
@@ -337,14 +337,36 @@
             if (envSelect) {
                 envSelect.addEventListener('change', function() {
                     const key = this.value;
-                    if (!key) return;
+                    const urlEl = document.getElementById('Url');
+                    if (!key) {
+                        urlEl.value = '';
+                        return;
+                    }
                     const env = environmentsList.find(e => (e.name || e.Name) === key);
                     if (env && (env.baseUrl || env.BaseUrl)) {
-                        document.getElementById('Url').value = (env.baseUrl || env.BaseUrl).trim();
+                        urlEl.value = (env.baseUrl || env.BaseUrl).trim();
+                    } else {
+                        urlEl.value = '';
                     }
+                    clearUrlInvalidState();
                 });
             }
+            const urlEl = document.getElementById('Url');
+            if (urlEl) urlEl.addEventListener('input', clearUrlInvalidState);
         });
+
+        function clearUrlInvalidState() {
+            const urlEl = document.getElementById('Url');
+            if (urlEl) urlEl.classList.remove('is-invalid');
+        }
+
+        function highlightUrlRequired() {
+            const urlEl = document.getElementById('Url');
+            if (!urlEl) return;
+            urlEl.classList.add('is-invalid');
+            urlEl.focus();
+            urlEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
 
         let batchScenariosCount = 0;
         let featureFilesList = [];
@@ -376,16 +398,17 @@
                 const response = await fetch('/TestRunner/GetEnvironments');
                 if (response.ok) {
                     const list = await response.json();
-                    environmentsList = list;
+                    environmentsList = list || [];
                     const select = document.getElementById('Environment');
-                    if (!select) return;
-                    select.innerHTML = '<option value="">— None —</option>';
-                    list.forEach(env => {
-                        const opt = document.createElement('option');
-                        opt.value = env.name || '';
-                        opt.textContent = env.displayName || env.name || opt.value;
-                        select.appendChild(opt);
-                    });
+                    if (select) {
+                        select.innerHTML = '<option value="">— None —</option>';
+                        (environmentsList).forEach(env => {
+                            const opt = document.createElement('option');
+                            opt.value = env.name || '';
+                            opt.textContent = env.displayName || env.name || opt.value;
+                            select.appendChild(opt);
+                        });
+                    }
                 }
             } catch (err) {
                 console.error("Failed to fetch environments", err);
@@ -607,13 +630,23 @@
 
         document.getElementById('btnBatchRun').addEventListener('click', async function() {
             const path = document.getElementById('BatchFeaturePath').value;
-            const url = document.getElementById('Url').value;
+            const url = document.getElementById('Url').value.trim();
             const scenarioIndex = document.getElementById('BatchScenario').value;
-            if (!path || !url) {
-                document.getElementById('batchRunResult').textContent = 'Choose a feature file and set Target URL above.';
+            const resultEl = document.getElementById('batchRunResult');
+            resultEl.classList.remove('text-success', 'text-danger');
+            if (!path) {
+                resultEl.textContent = 'Select a feature file first.';
+                resultEl.classList.add('text-danger');
+                document.getElementById('BatchFeaturePath').focus();
                 return;
             }
-            const resultEl = document.getElementById('batchRunResult');
+            if (!url) {
+                resultEl.textContent = 'Target URL is required. Enter a URL above or select an Environment.';
+                resultEl.classList.add('text-danger');
+                highlightUrlRequired();
+                return;
+            }
+            clearUrlInvalidState();
             const btn = document.getElementById('btnBatchRun');
             btn.disabled = true;
             resultEl.textContent = 'Enqueuing...';
@@ -834,7 +867,13 @@
 
         document.getElementById('testForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            
+            const urlVal = document.getElementById('Url').value.trim();
+            if (!urlVal) {
+                highlightUrlRequired();
+                return;
+            }
+            clearUrlInvalidState();
+
             const btn = document.getElementById('btnRun');
             const originalText = btn.innerText;
             btn.disabled = true;
@@ -842,7 +881,7 @@
 
             const envVal = document.getElementById('Environment').value.trim() || null;
             const data = {
-                Url: document.getElementById('Url').value,
+                Url: urlVal,
                 Headed: document.getElementById('Headed').checked,
                 GherkinScript: document.getElementById('GherkinScript').value,
                 Environment: envVal

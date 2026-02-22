@@ -53,7 +53,8 @@ public class SequentialBatchJob
             using var scope = _serviceProvider.CreateScope();
             var uiTestService = scope.ServiceProvider.GetRequiredService<IUiTestService>();
             var item = scenarios[i];
-            await uiTestService.RunTestAsync(resultIds[i], baseUrl, headed, item.GherkinScript, testDataCsvPath, cancellationToken);
+            var csvPath = !string.IsNullOrEmpty(item.TestDataCsvPath) ? item.TestDataCsvPath : testDataCsvPath;
+            await uiTestService.RunTestAsync(resultIds[i], baseUrl, headed, item.GherkinScript, csvPath, cancellationToken);
         }
     }
 }
