@@ -1,6 +1,7 @@
 # Secrets and local config - never commit
 test_secrets.json
 **/test_secrets.json
+appsettings.json
 appsettings.*.local.json
 appsettings.AIHub.json
 appsettings.SIT.json
