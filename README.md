@@ -4,13 +4,13 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 
 ## Features
 
-- **Generic Gherkin execution**: Paste or upload `.feature` content; steps like “I click the ‘Sign In’ button” are resolved from the page’s Aria snapshot.
+- **Generic Gherkin execution**: Paste or upload `.feature` content; steps such as “I click the ‘…’ button” are resolved from the page’s Aria snapshot.
 - **AI-driven locators**: The AI chooses the best selector (role, placeholder, text, or CSS from DOM hints) so tests stay resilient to minor UI changes.
 - **Recording**: Record a flow in the browser and save it as a Gherkin `.feature` file.
 - **Batch run**: Run many scenarios from one or more `.feature` files under **Runner:ScenariosPath**. Use the **Batch Run** panel to select a feature file (or “All feature files”), load scenarios, and enqueue up to **Runner:BatchRunMaxPerRequest** (default 100) per request. For larger sets, run by file, increase the cap in config, or use multiple feature paths via the API.
-- **Environment selection**: Choose an environment (e.g. ST, SIT, QA) in the UI; the target URL is filled from that environment’s **BaseUrl** and test data (e.g. credentials) is loaded from that environment’s CSV. Execution history and result details show which environment was used. **Feature-specific CSV**: when you run a feature (e.g. BaldoLogin) with an environment (e.g. SIT), the app looks for `TestData/{FeatureName}.{Environment}.VTS.csv` (e.g. `TestData/BaldoLogin.SIT.VTS.csv`); if that file exists it is used for that run, otherwise the environment’s default CSV (e.g. `Header.SIT.VTS.csv`) is used. **Re-run** uses the original run’s environment and that environment’s CSV when available.
+- **Environment selection**: Choose an environment in the UI; the target URL is filled from that environment’s **BaseUrl** and test data (e.g. credentials) is loaded from that environment’s CSV. Execution history and result details show which environment was used. **Feature-specific CSV**: when you run a feature with an environment selected, the runner looks for `TestData/{FeatureName}.{Environment}.VTS.csv`; if that file exists it is used for that run, otherwise the environment’s default CSV is used. **Re-run** uses the original run’s environment and that environment’s CSV when available.
 - **@ignore / @manual**: Scenarios tagged with `@ignore` or `@manual` appear in the Feature files & scenarios tab but are **excluded from execution** (single run and batch run). Use these tags to keep scenarios visible without running them.
-- **Verification steps**: Steps that contain “ is displayed” or “ is visible” (e.g. “And Version is displayed”) are treated as **verification**: the AI checks the page snapshot instead of performing an action, which avoids timeouts when the text is inside a version/build element.
+- **Verification steps**: Steps that contain “ is displayed” or “ is visible” are treated as **verification**: the AI checks the page snapshot instead of performing an action.
 - **Configurable**: Base URL, timeouts, AI provider, scenario path, batch cap, and **all OpenAI/Gemini endpoints and model names** are driven by configuration (no hardcoded API URLs or model names in code).
 
 ## Prerequisites
@@ -23,7 +23,7 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 
 1. **Clone and build**
    ```bash
-   cd AutonomateQA
+   cd <project-directory>
    dotnet restore
    dotnet build
    ```
@@ -35,9 +35,9 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
    Or from repo root: `npx playwright install chromium`
 
 3. **Configure**
-   - Copy or edit `appsettings.json` (and optionally `appsettings.Development.json`, a gitignored override such as `appsettings.AIHub.json`, or environment-specific files `appsettings.SIT.json`, `appsettings.ST.json`, etc. to override **Environments** and **Runner** when present).
-   - Set **Runner:BaseUrl** to your app’s start URL (e.g. login page) if you want it as the default in the UI.
-   - Set **Runner:ScenariosPath** to the folder where recorded `.feature` files are saved (e.g. `Scenarios`).
+   - Copy or edit `appsettings.json` (and optionally `appsettings.Development.json`, a gitignored override, or environment-specific files such as `appsettings.{Environment}.json` to override **Environments** and **Runner** when present).
+   - Set **Runner:BaseUrl** to the start URL of the target application if you want it as the default in the UI.
+   - Set **Runner:ScenariosPath** to the folder where recorded `.feature` files are saved.
    - Set **AiProvider** to `OpenAI` or `Gemini` and configure the provider (see [Secrets](#secrets) and [Configuration reference](#configuration-reference)). For OpenAI, set **OpenAI:ApiEndpoint** (or **OpenAI:ApiBaseUrl** for Azure) and the model arrays **OpenAI:ActionModels**, **VerifyModels**, **GherkinModels**; no endpoints or model names are hardcoded.
 
 4. **Secrets and test data**
@@ -45,14 +45,14 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
      `dotnet user-secrets set "TestSecrets:Username" "your_user"`  
      `dotnet user-secrets set "TestSecrets:Password" "your_pass"`  
      Use the same `TestSecrets:KeyName` pattern for any placeholder your Gherkin uses (e.g. `{{Username}}`, `{{Password}}`).
-   - **Per-environment test data**: Use the **Environment** dropdown in the UI (ST, SIT, QA, etc.); each environment’s **Environments:{Env}:CsvPath** in `appsettings.json` points to a default CSV (e.g. `TestData/Header.ST.VTS.csv`) for that env. You can add **feature-specific** CSVs named `TestData/{FeatureName}.{Environment}.VTS.csv` (e.g. `TestData/BaldoLogin.SIT.VTS.csv`); when that file exists, it is used for runs of that feature in that environment instead of the default. See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md).
+   - **Per-environment test data**: Use the **Environment** dropdown in the UI; each environment’s **Environments:{Env}:CsvPath** in `appsettings.json` points to a default CSV for that env. You can add **feature-specific** CSVs named `TestData/{FeatureName}.{Environment}.VTS.csv`; when that file exists, it is used for runs of that feature in that environment instead of the default. See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md).
    - **Fallback**: Add a `test_secrets.json` in the project root (do not commit). Format: `{ "Username": "…", "Password": "…" }`. See [CUSTOMIZATION.md](CUSTOMIZATION.md) for more.
 
 5. **Run**
    ```bash
    dotnet run
    ```
-   Open the app in the browser (e.g. `https://localhost:5001`), go to the AutonomateQA (Test Runner) page. The **Target URL** is empty until you select an **Environment** (which fills the URL from config) or type a URL; a URL is required to run. Optionally select an **Environment** to use that env’s test data CSV (and feature-specific CSV when available). Paste or upload a Gherkin script (or leave empty for a default flow), then run.
+   Open the app in the browser, go to the Test Runner page. The **Target URL** is empty until you select an **Environment** (which fills the URL from config) or type a URL; a URL is required to run. Optionally select an **Environment** to use that env’s test data CSV (and feature-specific CSV when available). Paste or upload a Gherkin script (or leave empty for a default flow), then run.
 
 ## Configuration reference
 
@@ -67,7 +67,7 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 | **OpenAI:ApiBaseUrl** | Azure/custom base URL (e.g. `https://your-instance.openai.azure.com/openai/deployments`). When set, **ApiEndpoint** is ignored and the request URL is built from this base + model + path + **ApiVersion**. | `OpenAI__ApiBaseUrl` |
 | **OpenAI:ApiVersion** | Azure API version (optional; default used if omitted). | `OpenAI__ApiVersion` |
 | **OpenAI:ActionModels**, **VerifyModels**, **GherkinModels** | Arrays of model or deployment names; must be set in config (no hardcoded defaults). | `OpenAI__ActionModels__0`, etc. |
-| **Environments** | Optional. Map of env keys (e.g. ST, SIT) to **BaseUrl** and **CsvPath** for the UI dropdown and per-run test data. See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md). | — |
+| **Environments** | Optional. Map of environment keys to **BaseUrl** and **CsvPath** for the UI dropdown and per-run test data. See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md). | — |
 | **Gemini:ApiKey** | Google AI Studio API key (optional if using VertexAI) | `Gemini__ApiKey` |
 | **Gemini:ActionModels**, **VerifyModels**, **GherkinModels** | Array of model names for REST API | `Gemini__ActionModels__0`, etc. |
 | **VertexAI:ProjectId**, **Location**, **ModelId** | Vertex AI settings (single model) | `VertexAI__*` |
@@ -77,16 +77,16 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 ## Project layout
 
 - **Core (generic)**: `Services/` (UiTestService, PlaywrightVisionService, TestDataManager, TestRecorderService), `AiProviders/`, `Configuration/`, `Steps/`, `Background/`.
-- **Your scenarios**: Put `.feature` files in the folder specified by **Runner:ScenariosPath** (e.g. `Scenarios/`). Recordings are saved there when **ScenariosPath** is set.
+- **Scenarios**: Put `.feature` files in the folder specified by **Runner:ScenariosPath**. Recordings are saved there when **ScenariosPath** is set.
 - **Secrets**: User Secrets or `test_secrets.json`; keys match placeholders in Gherkin (e.g. `{{Username}}` → `TestSecrets:Username` or `Username` in JSON).
 
 ## Customization
 
-To tailor the runner to your project (different steps, prompts, or DOM hints), see **[CUSTOMIZATION.md](CUSTOMIZATION.md)** for:
+To tailor the runner (different steps, prompts, or DOM hints), see **[CUSTOMIZATION.md](CUSTOMIZATION.md)** for:
 
 - Adding and organizing feature files  
 - Adjusting AI action/verification prompts  
-- Adding DOM identifier keywords for your app  
+- Adding DOM identifier keywords  
 - Project-specific config and secrets  
 
 For a security and coding-standards review, see **[SECURITY_AND_STANDARDS.md](SECURITY_AND_STANDARDS.md)**.
