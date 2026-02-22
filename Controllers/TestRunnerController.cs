@@ -422,6 +422,7 @@ namespace UiTestRunner.Controllers
             }
 
             var environmentKey = !string.IsNullOrWhiteSpace(request.Environment) ? request.Environment.Trim() : null;
+            var applicationName = _configuration["TestData:ApplicationName"]?.Trim();
             if (request.Sequential)
             {
                 var scenarioPayload = toRun.Select(s => new ScenarioRunItem
@@ -429,7 +430,7 @@ namespace UiTestRunner.Controllers
                     Name = s.Name,
                     GherkinScript = s.GherkinScript,
                     FeaturePath = s.FeaturePath,
-                    TestDataCsvPath = ResolveCsvPath(environmentKey, s.FeaturePath, testDataCsvPath)
+                    TestDataCsvPath = ResolveCsvPath(environmentKey, s.FeaturePath, applicationName, testDataCsvPath)
                 }).ToList();
                 _backgroundJobClient.Enqueue<SequentialBatchJob>(job => job.Execute(request.BaseUrl, request.Headed, scenarioPayload, batchRunId, testDataCsvPath, environmentKey));
                 _logger.LogInformation("BatchRun enqueued sequential job with {Count} scenarios for {Url}, batchRunId={BatchRunId}", toRun.Count, request.BaseUrl, batchRunId);
@@ -452,7 +453,7 @@ namespace UiTestRunner.Controllers
                 };
                 _context.TestResults.Add(testResult);
                 await _context.SaveChangesAsync();
-                var resolvedCsvPath = ResolveCsvPath(environmentKey, item.FeaturePath, testDataCsvPath);
+                var resolvedCsvPath = ResolveCsvPath(environmentKey, item.FeaturePath, applicationName, testDataCsvPath);
                 var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, request.BaseUrl, request.Headed, item.GherkinScript, resolvedCsvPath));
                 testResult.HangfireJobId = hangfireId;
                 await _context.SaveChangesAsync();
@@ -464,23 +465,54 @@ namespace UiTestRunner.Controllers
         }
 
         /// <summary>
-        /// If environment and feature path are set, tries TestData/{FeatureName}.{Environment}.VTS.csv (e.g. BaldoLogin.SIT.VTS.csv).
+        /// If environment and feature path are set, tries TestData/{FeatureName}.{Environment}.{ApplicationName}.csv
+        /// (when TestData:ApplicationName is set or derived from default CsvPath), then TestData/{FeatureName}.{Environment}.csv.
         /// Returns that path when the file exists; otherwise returns the environment default.
         /// </summary>
-        private string? ResolveCsvPath(string? environmentKey, string? featurePath, string? defaultCsvPath)
+        private string? ResolveCsvPath(string? environmentKey, string? featurePath, string? applicationName, string? defaultCsvPath)
         {
             if (string.IsNullOrWhiteSpace(environmentKey) || string.IsNullOrWhiteSpace(featurePath))
                 return defaultCsvPath;
             var featureName = Path.GetFileNameWithoutExtension(featurePath.Trim());
             if (string.IsNullOrEmpty(featureName)) return defaultCsvPath;
-            var candidatePath = $"TestData/{featureName}.{environmentKey.Trim()}.VTS.csv";
-            var fullPath = Path.Combine(_env.ContentRootPath ?? "", candidatePath);
-            if (System.IO.File.Exists(fullPath))
+            var env = environmentKey.Trim();
+            var appName = applicationName;
+            if (string.IsNullOrWhiteSpace(appName) && !string.IsNullOrWhiteSpace(defaultCsvPath))
             {
-                _logger.LogInformation("Using feature-specific test data CSV: {CsvPath}", candidatePath);
-                return candidatePath;
+                var derived = DeriveApplicationNameFromCsvPath(defaultCsvPath, env);
+                if (!string.IsNullOrEmpty(derived)) appName = derived;
             }
+            var candidates = new List<string>();
+            if (!string.IsNullOrWhiteSpace(appName))
+                candidates.Add($"TestData/{featureName}.{env}.{appName!.Trim()}.csv");
+            candidates.Add($"TestData/{featureName}.{env}.csv");
+            foreach (var candidatePath in candidates)
+            {
+                var fullPath = Path.Combine(_env.ContentRootPath ?? "", candidatePath);
+                if (System.IO.File.Exists(fullPath))
+                {
+                    _logger.LogInformation("Using feature-specific test data CSV: {CsvPath}", candidatePath);
+                    return candidatePath;
+                }
+            }
+            _logger.LogDebug("Feature-specific CSV not found (tried: {Candidates}). Using environment default: {Default}", string.Join(", ", candidates), defaultCsvPath ?? "(none)");
             return defaultCsvPath;
+        }
+
+        /// <summary>Derives ApplicationName from a default CsvPath like TestData/Header.SIT.VTS.csv when Environment matches.</summary>
+        private static string? DeriveApplicationNameFromCsvPath(string defaultCsvPath, string environmentKey)
+        {
+            var fileName = Path.GetFileName(defaultCsvPath.Trim());
+            if (string.IsNullOrEmpty(fileName) || !fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)) return null;
+            var nameWithoutExt = fileName.AsSpan(0, fileName.Length - 4);
+            var parts = new List<string>();
+            foreach (var part in nameWithoutExt.ToString().Split('.'))
+            {
+                if (!string.IsNullOrEmpty(part)) parts.Add(part);
+            }
+            if (parts.Count >= 2 && string.Equals(parts[parts.Count - 2], environmentKey, StringComparison.OrdinalIgnoreCase))
+                return parts[parts.Count - 1];
+            return null;
         }
 
         private static bool HasIgnoreOrManualTag(ScenarioItem s)

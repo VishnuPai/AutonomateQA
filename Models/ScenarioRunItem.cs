@@ -9,6 +9,6 @@ public class ScenarioRunItem
     public string GherkinScript { get; set; } = "";
     /// <summary>Feature file path (e.g. "Login.feature").</summary>
     public string? FeaturePath { get; set; }
-    /// <summary>Resolved test data CSV path for this scenario (e.g. TestData/BaldoLogin.SIT.VTS.csv). When set, overrides env default.</summary>
+    /// <summary>Resolved test data CSV path for this scenario (e.g. TestData/FeatureName.Environment.ApplicationName.csv). When set, overrides env default.</summary>
     public string? TestDataCsvPath { get; set; }
 }
