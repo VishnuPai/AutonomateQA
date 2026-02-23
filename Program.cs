@@ -133,6 +133,7 @@ using (var scope = app.Services.CreateScope())
         AddColumnIfMissing("FeaturePath", "ALTER TABLE TestResults ADD COLUMN FeaturePath TEXT NULL");
         AddColumnIfMissing("ScenarioName", "ALTER TABLE TestResults ADD COLUMN ScenarioName TEXT NULL");
         AddColumnIfMissing("Environment", "ALTER TABLE TestResults ADD COLUMN Environment TEXT NULL");
+        AddColumnIfMissing("ApplicationName", "ALTER TABLE TestResults ADD COLUMN ApplicationName TEXT NULL");
     }
     catch (Exception) { /* Non-SQLite or table not created yet */ }
 }

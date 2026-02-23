@@ -58,6 +58,32 @@ namespace UiTestRunner.Controllers
             return Json(list);
         }
 
+        /// <summary>Returns configured application names for the UI dropdown. From TestData:Applications (array) plus TestData:ApplicationName as default when present.</summary>
+        [HttpGet]
+        public IActionResult GetApplications()
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var list = new List<object>();
+            var defaultApp = _configuration["TestData:ApplicationName"]?.Trim();
+            if (!string.IsNullOrEmpty(defaultApp))
+            {
+                list.Add(new { name = defaultApp, isDefault = true });
+                seen.Add(defaultApp);
+            }
+            var apps = _configuration.GetSection("TestData:Applications").Get<string[]>();
+            if (apps != null)
+            {
+                foreach (var name in apps)
+                {
+                    var n = name?.Trim();
+                    if (string.IsNullOrEmpty(n) || seen.Contains(n)) continue;
+                    seen.Add(n);
+                    list.Add(new { name = n, isDefault = false });
+                }
+            }
+            return Json(list);
+        }
+
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
         public IActionResult Error()
         {
@@ -89,7 +115,8 @@ namespace UiTestRunner.Controllers
                 GherkinScript = model.GherkinScript,
                 Status = TestStatus.Pending,
                 RunTime = DateTime.Now,
-                Environment = !string.IsNullOrWhiteSpace(model.Environment) ? model.Environment!.Trim() : null
+                Environment = !string.IsNullOrWhiteSpace(model.Environment) ? model.Environment!.Trim() : null,
+                ApplicationName = !string.IsNullOrWhiteSpace(model.ApplicationName) ? model.ApplicationName!.Trim() : null
             };
 
             _context.TestResults.Add(testResult);
@@ -103,7 +130,19 @@ namespace UiTestRunner.Controllers
                 if (string.IsNullOrEmpty(testDataCsvPath))
                     _logger.LogWarning("Environment '{Env}' has no CsvPath configured; run will use default test data.", envKey);
                 else
-                    _logger.LogInformation("TriggerTest: using test data CSV for environment {Env}: {CsvPath}", envKey, testDataCsvPath);
+                {
+                    // Never pass a Production path when the selected environment is not Production (guards against config override).
+                    var appName = !string.IsNullOrWhiteSpace(model.ApplicationName) ? model.ApplicationName.Trim() : _configuration["TestData:ApplicationName"]?.Trim();
+                    if (testDataCsvPath.Contains("Production", StringComparison.OrdinalIgnoreCase) && !envKey.Equals("Production", StringComparison.OrdinalIgnoreCase))
+                    {
+                        testDataCsvPath = !string.IsNullOrWhiteSpace(appName)
+                            ? $"TestData/Header.{envKey}.{appName}.csv"
+                            : $"TestData/Header.{envKey}.csv";
+                        _logger.LogWarning("TriggerTest: config had Production CSV for env '{Env}'; using expected path instead: {CsvPath}", envKey, testDataCsvPath);
+                    }
+                    else
+                        _logger.LogInformation("TriggerTest: using test data CSV for environment {Env}: {CsvPath}", envKey, testDataCsvPath);
+                }
             }
 
             // Enqueue Hangfire Job
@@ -232,7 +271,8 @@ namespace UiTestRunner.Controllers
                 GherkinScript = existing.GherkinScript,
                 Status = TestStatus.Pending,
                 RunTime = DateTime.Now,
-                Environment = existing.Environment
+                Environment = existing.Environment,
+                ApplicationName = existing.ApplicationName
             };
             _context.TestResults.Add(testResult);
             await _context.SaveChangesAsync();
@@ -411,28 +451,63 @@ namespace UiTestRunner.Controllers
             var batchRunId = Guid.NewGuid().ToString("N")[..16];
 
             string? testDataCsvPath = null;
-            if (!string.IsNullOrWhiteSpace(request.Environment))
+            var environmentKey = !string.IsNullOrWhiteSpace(request.Environment) ? request.Environment.Trim() : null;
+            if (!string.IsNullOrWhiteSpace(environmentKey))
             {
-                var envKey = request.Environment.Trim();
-                testDataCsvPath = _configuration[$"Environments:{envKey}:CsvPath"]?.Trim();
-                if (string.IsNullOrEmpty(testDataCsvPath))
-                    _logger.LogWarning("Environment '{Env}' has no CsvPath configured; batch run will use default test data.", envKey);
-                else
-                    _logger.LogInformation("BatchRun: using test data CSV for environment {Env}: {CsvPath}", envKey, testDataCsvPath);
+                testDataCsvPath = _configuration[$"Environments:{environmentKey}:CsvPath"]?.Trim();
+                if (string.IsNullOrEmpty(testDataCsvPath) && toRun.Count > 0)
+                {
+                    // No CsvPath configured for this environment: use an environment-specific default so we don't fall back to another env's file (e.g. Production).
+                    var appName = _configuration["TestData:ApplicationName"]?.Trim();
+                    var firstFeatureName = Path.GetFileNameWithoutExtension(toRun[0].FeaturePath?.Trim() ?? "");
+                    if (!string.IsNullOrEmpty(firstFeatureName))
+                    {
+                        testDataCsvPath = !string.IsNullOrWhiteSpace(appName)
+                            ? $"TestData/{firstFeatureName}.{environmentKey}.{appName}.csv"
+                            : $"TestData/{firstFeatureName}.{environmentKey}.csv";
+                        _logger.LogInformation("BatchRun: Environment '{Env}' has no CsvPath in config; using environment-specific default: {CsvPath}", environmentKey, testDataCsvPath);
+                    }
+                }
+                else if (!string.IsNullOrEmpty(testDataCsvPath))
+                {
+                    // Never use a Production path when the selected environment is not Production (guards against config override).
+                    var appForGuard = !string.IsNullOrWhiteSpace(request.ApplicationName) ? request.ApplicationName.Trim() : _configuration["TestData:ApplicationName"]?.Trim();
+                    if (testDataCsvPath.Contains("Production", StringComparison.OrdinalIgnoreCase) && !environmentKey.Equals("Production", StringComparison.OrdinalIgnoreCase))
+                    {
+                        testDataCsvPath = !string.IsNullOrWhiteSpace(appForGuard)
+                            ? $"TestData/Header.{environmentKey}.{appForGuard}.csv"
+                            : $"TestData/Header.{environmentKey}.csv";
+                        _logger.LogWarning("BatchRun: config had Production CSV for env '{Env}'; using expected path instead: {CsvPath}", environmentKey, testDataCsvPath);
+                    }
+                    else
+                        _logger.LogInformation("BatchRun: using test data CSV for environment {Env}: {CsvPath}", environmentKey, testDataCsvPath);
+                }
             }
 
-            var environmentKey = !string.IsNullOrWhiteSpace(request.Environment) ? request.Environment.Trim() : null;
-            var applicationName = _configuration["TestData:ApplicationName"]?.Trim();
+            var applicationName = !string.IsNullOrWhiteSpace(request.ApplicationName) ? request.ApplicationName!.Trim() : _configuration["TestData:ApplicationName"]?.Trim();
             if (request.Sequential)
             {
-                var scenarioPayload = toRun.Select(s => new ScenarioRunItem
+                var scenarioPayload = toRun.Select(s =>
                 {
-                    Name = s.Name,
-                    GherkinScript = s.GherkinScript,
-                    FeaturePath = s.FeaturePath,
-                    TestDataCsvPath = ResolveCsvPath(environmentKey, s.FeaturePath, applicationName, testDataCsvPath)
+                    var resolved = ResolveCsvPath(environmentKey, s.FeaturePath, applicationName, testDataCsvPath);
+                    // When Environment is set but resolution returned null, use expected path so we never fall back to batch default (e.g. Production) in the job.
+                    if (string.IsNullOrEmpty(resolved) && !string.IsNullOrWhiteSpace(environmentKey) && !string.IsNullOrWhiteSpace(s.FeaturePath))
+                    {
+                        var fn = Path.GetFileNameWithoutExtension(s.FeaturePath.Trim());
+                        if (!string.IsNullOrEmpty(fn))
+                            resolved = !string.IsNullOrWhiteSpace(applicationName)
+                                ? $"TestData/{fn}.{environmentKey.Trim()}.{applicationName}.csv"
+                                : $"TestData/{fn}.{environmentKey.Trim()}.csv";
+                    }
+                    return new ScenarioRunItem
+                    {
+                        Name = s.Name,
+                        GherkinScript = s.GherkinScript,
+                        FeaturePath = s.FeaturePath,
+                        TestDataCsvPath = resolved
+                    };
                 }).ToList();
-                _backgroundJobClient.Enqueue<SequentialBatchJob>(job => job.Execute(request.BaseUrl, request.Headed, scenarioPayload, batchRunId, testDataCsvPath, environmentKey));
+                _backgroundJobClient.Enqueue<SequentialBatchJob>(job => job.Execute(request.BaseUrl, request.Headed, scenarioPayload, batchRunId, testDataCsvPath, environmentKey, applicationName));
                 _logger.LogInformation("BatchRun enqueued sequential job with {Count} scenarios for {Url}, batchRunId={BatchRunId}", toRun.Count, request.BaseUrl, batchRunId);
                 return Ok(new { enqueued = toRun.Count, sequential = true, totalInFiles = allScenarios.Count, batchRunId, message = $"Enqueued 1 sequential batch ({toRun.Count} scenario(s)). Track progress below." });
             }
@@ -449,11 +524,20 @@ namespace UiTestRunner.Controllers
                     BatchRunId = batchRunId,
                     FeaturePath = item.FeaturePath,
                     ScenarioName = item.Name,
-                    Environment = environmentKey
+                    Environment = environmentKey,
+                    ApplicationName = applicationName
                 };
                 _context.TestResults.Add(testResult);
                 await _context.SaveChangesAsync();
                 var resolvedCsvPath = ResolveCsvPath(environmentKey, item.FeaturePath, applicationName, testDataCsvPath);
+                if (string.IsNullOrEmpty(resolvedCsvPath) && !string.IsNullOrWhiteSpace(environmentKey) && !string.IsNullOrWhiteSpace(item.FeaturePath))
+                {
+                    var fn = Path.GetFileNameWithoutExtension(item.FeaturePath.Trim());
+                    if (!string.IsNullOrEmpty(fn))
+                        resolvedCsvPath = !string.IsNullOrWhiteSpace(applicationName)
+                            ? $"TestData/{fn}.{environmentKey.Trim()}.{applicationName}.csv"
+                            : $"TestData/{fn}.{environmentKey.Trim()}.csv";
+                }
                 var hangfireId = _backgroundJobClient.Enqueue<TestRunnerJob>(job => job.Execute(testResult.Id, request.BaseUrl, request.Headed, item.GherkinScript, resolvedCsvPath));
                 testResult.HangfireJobId = hangfireId;
                 await _context.SaveChangesAsync();
@@ -481,6 +565,9 @@ namespace UiTestRunner.Controllers
             {
                 var derived = DeriveApplicationNameFromCsvPath(defaultCsvPath, env);
                 if (!string.IsNullOrEmpty(derived)) appName = derived;
+                // When default is for another env (e.g. Header.Production.VTS), derivation returns null; still try current env with same app segment so Header.SIT.VTS.csv is tried.
+                if (string.IsNullOrWhiteSpace(appName))
+                    appName = GetApplicationNameSegmentFromCsvPath(defaultCsvPath);
             }
             var candidates = new List<string>();
             if (!string.IsNullOrWhiteSpace(appName))
@@ -495,8 +582,63 @@ namespace UiTestRunner.Controllers
                     return candidatePath;
                 }
             }
+            // Do not use environment default when it is for a different environment (e.g. config has SIT pointing at Header.Production.VTS.csv).
+            if (!string.IsNullOrWhiteSpace(defaultCsvPath) && DefaultCsvPathIsForDifferentEnvironment(defaultCsvPath, env))
+            {
+                _logger.LogWarning("Environment default CSV appears to be for a different environment: {Default}. Using expected path for {Env}: {Candidate}", defaultCsvPath, env, candidates.Count > 0 ? candidates[0] : "(none)");
+                return candidates.Count > 0 ? candidates[0] : null;
+            }
+            // Backup: do not use default path that clearly contains another environment name (e.g. .Production.) when current env is not that.
+            if (!string.IsNullOrWhiteSpace(defaultCsvPath) && env.Length > 0 && defaultCsvPath.Contains($".Production.", StringComparison.OrdinalIgnoreCase) && !string.Equals(env, "Production", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Environment default CSV path contains '.Production.' but selected environment is '{Env}'. Using expected path: {Candidate}", env, candidates.Count > 0 ? candidates[0] : "(none)");
+                return candidates.Count > 0 ? candidates[0] : null;
+            }
+            // Final guard: never return a default path that contains "Production" when the selected environment is not Production (e.g. SIT).
+            if (!string.IsNullOrEmpty(defaultCsvPath) && candidates.Count > 0 &&
+                !string.Equals(env, "Production", StringComparison.OrdinalIgnoreCase) &&
+                defaultCsvPath.Contains("Production", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Rejecting default CSV path containing 'Production' for environment '{Env}'. Using: {Candidate}", env, candidates[0]);
+                return candidates[0];
+            }
             _logger.LogDebug("Feature-specific CSV not found (tried: {Candidates}). Using environment default: {Default}", string.Join(", ", candidates), defaultCsvPath ?? "(none)");
             return defaultCsvPath;
+        }
+
+        /// <summary>Returns the last dot-segment of the CSV filename (e.g. VTS from Header.Production.VTS.csv) so we can try FeatureName.CurrentEnv.VTS.csv when the default path is for another env.</summary>
+        private static string? GetApplicationNameSegmentFromCsvPath(string defaultCsvPath)
+        {
+            var fileName = Path.GetFileName(defaultCsvPath.Trim());
+            if (string.IsNullOrEmpty(fileName) || !fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)) return null;
+            var nameWithoutExt = fileName.AsSpan(0, fileName.Length - 4);
+            var parts = new List<string>();
+            foreach (var part in nameWithoutExt.ToString().Split('.'))
+            {
+                if (!string.IsNullOrEmpty(part)) parts.Add(part);
+            }
+            return parts.Count >= 3 ? parts[parts.Count - 1] : null;
+        }
+
+        /// <summary>Returns true when the default CSV path filename indicates a different environment (e.g. Header.Production.VTS.csv when env is SIT).</summary>
+        private static bool DefaultCsvPathIsForDifferentEnvironment(string defaultCsvPath, string environmentKey)
+        {
+            var fileName = Path.GetFileName(defaultCsvPath.Trim());
+            if (string.IsNullOrEmpty(fileName) || !fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)) return false;
+            var nameWithoutExt = fileName.AsSpan(0, fileName.Length - 4);
+            var parts = new List<string>();
+            foreach (var part in nameWithoutExt.ToString().Split('.'))
+            {
+                if (!string.IsNullOrEmpty(part)) parts.Add(part);
+            }
+            // Pattern: FeatureName.Environment.ApplicationName or FeatureName.Environment; second-to-last or single middle part is env.
+            if (parts.Count >= 2)
+            {
+                var envInPath = parts.Count >= 3 ? parts[parts.Count - 2] : parts[1];
+                if (!string.Equals(envInPath, environmentKey, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>Derives ApplicationName from a default CsvPath like TestData/Header.SIT.VTS.csv when Environment matches.</summary>

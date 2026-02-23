@@ -16,6 +16,7 @@ namespace UiTestRunner.Services
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<UiTestService> _logger;
         private readonly IWebHostEnvironment _env;
+        private readonly IConfiguration _configuration;
         private readonly PlaywrightSettings _playwrightSettings;
 
         private readonly IAiModelProvider _aiProvider;
@@ -26,11 +27,12 @@ namespace UiTestRunner.Services
         private string? _lastSnapshot; // Store the last snapshot
         private readonly StringBuilder _reasoningBuffer = new(); // Buffer for reasoning log entries
 
-        public UiTestService(IServiceScopeFactory scopeFactory, ILogger<UiTestService> logger, IWebHostEnvironment env, IAiModelProvider aiProvider, ITestDataManager testDataManager, IPlaywrightVisionService visionService, Microsoft.Extensions.Options.IOptions<PlaywrightSettings> playwrightSettings, ITestRunTokenTracker tokenTracker)
+        public UiTestService(IServiceScopeFactory scopeFactory, ILogger<UiTestService> logger, IWebHostEnvironment env, IConfiguration configuration, IAiModelProvider aiProvider, ITestDataManager testDataManager, IPlaywrightVisionService visionService, Microsoft.Extensions.Options.IOptions<PlaywrightSettings> playwrightSettings, ITestRunTokenTracker tokenTracker)
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
             _env = env;
+            _configuration = configuration;
             _aiProvider = aiProvider;
             _testDataManager = testDataManager;
             _visionService = visionService;
@@ -74,17 +76,57 @@ namespace UiTestRunner.Services
 
         public async Task<TestResult?> RunTestAsync(int testResultId, string url, bool headed = false, string? gherkinScript = null, string? testDataCsvPath = null, CancellationToken cancellationToken = default)
         {
-            if (!string.IsNullOrWhiteSpace(testDataCsvPath))
-                _testDataManager.LoadCsvForCurrentRun(testDataCsvPath);
-
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var testResult = await db.TestResults.FindAsync(testResultId);
 
             if (testResult == null)
             {
-                _logger.LogError($"TestResult with ID {testResultId} not found.");
+                _logger.LogError("TestResult with ID {Id} not found.", testResultId);
                 return null;
+            }
+
+            // Last line of defense: never load Production data when this run's Environment is not Production (e.g. SIT).
+            var pathToLoad = testDataCsvPath;
+            var env = testResult.Environment?.Trim();
+            var isNonProdRun = !string.IsNullOrWhiteSpace(env) && !env.Equals("Production", StringComparison.OrdinalIgnoreCase);
+            var featureName = string.IsNullOrWhiteSpace(testResult.FeaturePath) ? null : Path.GetFileNameWithoutExtension(testResult.FeaturePath.Trim());
+
+            _logger.LogInformation("RunTestAsync CSV resolution: TestResultId={Id}, Environment={Env}, ApplicationName={App}, FeaturePath={Feature}, passedPath={Path}",
+                testResultId, env ?? "(null)", testResult.ApplicationName ?? "(null)", testResult.FeaturePath ?? "(null)", testDataCsvPath ?? "(null)");
+
+            var appNameForPath = !string.IsNullOrWhiteSpace(testResult.ApplicationName) ? testResult.ApplicationName.Trim() : _configuration["TestData:ApplicationName"]?.Trim();
+            if (isNonProdRun)
+            {
+                var pathContainsProduction = !string.IsNullOrWhiteSpace(pathToLoad) && pathToLoad.Contains("Production", StringComparison.OrdinalIgnoreCase);
+                var useFeatureInPath = !string.IsNullOrEmpty(featureName);
+                var baseName = useFeatureInPath ? featureName! : "Header";
+                if (pathContainsProduction)
+                {
+                    pathToLoad = !string.IsNullOrWhiteSpace(appNameForPath)
+                        ? $"TestData/{baseName}.{env}.{appNameForPath}.csv"
+                        : $"TestData/{baseName}.{env}.csv";
+                    _logger.LogWarning("Run is for environment '{Env}' but CSV path contained 'Production'. Using: {Path}", env, pathToLoad);
+                }
+                else if (string.IsNullOrWhiteSpace(pathToLoad))
+                {
+                    // No path passed (e.g. env has no CsvPath or job fallback was null). Use expected path so we don't fall back to static cache (which may be Production).
+                    pathToLoad = !string.IsNullOrWhiteSpace(appNameForPath)
+                        ? $"TestData/{baseName}.{env}.{appNameForPath}.csv"
+                        : $"TestData/{baseName}.{env}.csv";
+                    _logger.LogInformation("Run is for environment '{Env}'; no CSV path passed. Using: {Path}", env, pathToLoad);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(pathToLoad))
+            {
+                _logger.LogInformation("RunTestAsync (Feature={Feature}, Env={Env}): loading test data from {Path}", featureName ?? "(unknown)", env ?? "(none)", pathToLoad);
+                _testDataManager.LoadCsvForCurrentRun(pathToLoad);
+            }
+            else
+            {
+                // Do not use static cache when no CSV path was loaded for this run (e.g. static cache may have been filled from TestData:CsvPath at startup, which can be Production when ASPNETCORE_ENVIRONMENT=Production).
+                _testDataManager.RefuseStaticCacheForThisRun();
+                _logger.LogWarning("RunTestAsync: no CSV path for this run (Env={Env}); static cache refused to avoid wrong environment data. Ensure Environment/Application are sent from UI.", env ?? "(null)");
             }
 
             testResult.Status = TestStatus.Running;
@@ -274,7 +316,7 @@ namespace UiTestRunner.Services
 
                     var action = await _aiProvider.GetActionAsync(step, snapshot, cancellationToken);
                     AppendReasoningLog($"[Action] Step: '{step}' - AI Reasoning: {action.Reasoning} - Executing: {action.ActionType} on {action.SelectorValue}");
-                    await ExecutePlaywrightAction(page, action, cancellationToken);
+                    await ExecutePlaywrightAction(page, action, step, cancellationToken);
                 }
             }
 
@@ -446,27 +488,50 @@ namespace UiTestRunner.Services
             }
         }
 
-        private async Task ExecutePlaywrightAction(IPage page, UiActionResponse action, CancellationToken cancellationToken = default)
+        /// <summary>
+        /// Returns true when the Gherkin step text suggests the user means a navigation/sidebar/menu item.
+        /// Used to scope Link, Menuitem, and Button locators to the navigation landmark so the correct item is clicked when the page has same-named elements in different areas.
+        /// </summary>
+        private static bool StepSuggestsNavigationContext(string? stepText)
+        {
+            if (string.IsNullOrWhiteSpace(stepText)) return false;
+            return stepText.Contains("navigation", StringComparison.OrdinalIgnoreCase)
+                   || stepText.Contains("nav item", StringComparison.OrdinalIgnoreCase)
+                   || stepText.Contains("nav link", StringComparison.OrdinalIgnoreCase)
+                   || stepText.Contains("sidebar", StringComparison.OrdinalIgnoreCase)
+                   || stepText.Contains("menu item", StringComparison.OrdinalIgnoreCase)
+                   || stepText.Contains("side menu", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private async Task ExecutePlaywrightAction(IPage page, UiActionResponse action, string? stepText = null, CancellationToken cancellationToken = default)
         {
             ILocator locator;
-            
+
+            // When the step describes a navigation/sidebar/menu item, scope to the navigation landmark so we click the correct control instead of a same-named element elsewhere on the page.
+            bool scopeToNavigation = StepSuggestsNavigationContext(stepText);
+
             // Try Role first. For Link/Menuitem use non-exact name match so submenu items and labels with extra text (e.g. "Suppliers (5)") still match.
+            // Use .First when multiple elements match the same role/name (e.g. two buttons with the same text) to avoid strict mode violation.
             if (Enum.TryParse<AriaRole>(action.SelectorType, true, out var role))
             {
                 var useExact = role != AriaRole.Link && role != AriaRole.Menuitem;
-                locator = page.GetByRole(role, new PageGetByRoleOptions { Name = action.SelectorValue, Exact = useExact });
+                if (scopeToNavigation && (role == AriaRole.Link || role == AriaRole.Menuitem || role == AriaRole.Button))
+                    locator = page.GetByRole(AriaRole.Navigation).GetByRole(role, new LocatorGetByRoleOptions { Name = action.SelectorValue, Exact = useExact }).First;
+                else
+                    locator = page.GetByRole(role, new PageGetByRoleOptions { Name = action.SelectorValue, Exact = useExact }).First;
             }
             else if (string.Equals(action.SelectorType, SelectorTypes.Text, StringComparison.OrdinalIgnoreCase))
             {
-                locator = page.GetByText(action.SelectorValue);
+                // Use substring match (Exact = false) so steps still match when visible text differs slightly (e.g. punctuation or whitespace).
+                locator = page.GetByText(action.SelectorValue, new PageGetByTextOptions { Exact = false }).First;
             }
             else if (string.Equals(action.SelectorType, SelectorTypes.Label, StringComparison.OrdinalIgnoreCase))
             {
-                locator = page.GetByLabel(action.SelectorValue);
+                locator = page.GetByLabel(action.SelectorValue).First;
             }
             else if (string.Equals(action.SelectorType, SelectorTypes.Placeholder, StringComparison.OrdinalIgnoreCase))
             {
-                locator = page.GetByPlaceholder(action.SelectorValue, new PageGetByPlaceholderOptions { Exact = true });
+                locator = page.GetByPlaceholder(action.SelectorValue, new PageGetByPlaceholderOptions { Exact = true }).First;
             }
             else 
             {

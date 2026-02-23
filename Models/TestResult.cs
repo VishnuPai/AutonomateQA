@@ -53,6 +53,10 @@ namespace UiTestRunner.Models
         [MaxLength(64)]
         public string? Environment { get; set; }
 
+        /// <summary>Application name selected for this run (e.g. VTS, Portal). Used for test data CSV; shown in history.</summary>
+        [MaxLength(64)]
+        public string? ApplicationName { get; set; }
+
         /// <summary>AI prompt tokens used for this run (OpenAI/Gemini).</summary>
         public int? PromptTokens { get; set; }
 

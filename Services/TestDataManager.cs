@@ -12,6 +12,8 @@ namespace UiTestRunner.Services
         string ReplacePlaceholders(string input);
         void AddSecret(string key, string value);
         void LoadCsvForCurrentRun(string csvPath);
+        /// <summary>Call when no CSV path is loaded for this run so we do not fall back to static cache (which may be from another env, e.g. Production).</summary>
+        void RefuseStaticCacheForThisRun();
         string MaskLiterals(string input);
     }
 
@@ -65,7 +67,7 @@ namespace UiTestRunner.Services
                         // Fallback to test_secrets.json for backward compatibility (only if User Secrets not found)
                         if (_staticSecretsCache.Count == 0)
                         {
-                            var secretsPath = Path.Combine(env.ContentRootPath, "test_secrets.json");
+                            var secretsPath = Path.Combine(_contentRootPath, "test_secrets.json");
                             if (File.Exists(secretsPath))
                             {
                                 try
@@ -90,25 +92,36 @@ namespace UiTestRunner.Services
                         }
 
                         // Optional: load test data from CSV (per-environment). Overrides/merges with existing keys.
+                        // Do NOT load a Production CSV into static cache unless the app is running in Production environment,
+                        // so that SIT/other runs never accidentally use Production data from static cache.
                         var csvPath = _configuration["TestData:CsvPath"]?.Trim();
                         if (!string.IsNullOrEmpty(csvPath))
                         {
-                            var fullPath = Path.IsPathRooted(csvPath) ? csvPath : Path.Combine(env.ContentRootPath, csvPath);
-                            if (File.Exists(fullPath))
+                            var envName = env?.EnvironmentName ?? "";
+                            var pathIsProduction = csvPath.Contains("Production", StringComparison.OrdinalIgnoreCase);
+                            if (pathIsProduction && !string.Equals(envName, "Production", StringComparison.OrdinalIgnoreCase))
                             {
-                                try
-                                {
-                                    var csvCount = LoadCsvIntoCache(fullPath, _staticSecretsCache);
-                                    _logger.LogInformation("Loaded {Count} test data entries from CSV: {Path}", csvCount, csvPath);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex, "Failed to load test data CSV: {Path}", fullPath);
-                                }
+                                _logger.LogInformation("Skipping static cache load of Production CSV (TestData:CsvPath={Path}) because app environment is '{Env}'. Per-run CSV will be used for non-Production runs.", csvPath, envName);
                             }
                             else
                             {
-                                _logger.LogWarning("Test data CSV not found: {Path}", fullPath);
+                                var fullPath = Path.IsPathRooted(csvPath) ? csvPath : Path.Combine(_contentRootPath, csvPath);
+                                if (File.Exists(fullPath))
+                                {
+                                    try
+                                    {
+                                        var csvCount = LoadCsvIntoCache(fullPath, _staticSecretsCache);
+                                        _logger.LogInformation("Loaded {Count} test data entries from CSV: {Path}", csvCount, csvPath);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Failed to load test data CSV: {Path}", fullPath);
+                                    }
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("Test data CSV not found: {Path}", fullPath);
+                                }
                             }
                         }
                     }
@@ -197,6 +210,12 @@ namespace UiTestRunner.Services
             _scopedSecrets.Clear();
             var count = LoadCsvIntoCache(fullPath, _scopedSecrets);
             _logger.LogInformation("Using test data for this run from: {Path} ({Count} entries)", csvPath, count);
+        }
+
+        /// <inheritdoc />
+        public void RefuseStaticCacheForThisRun()
+        {
+            _refuseStaticCacheForThisRun = true;
         }
 
         public void AddSecret(string key, string value)

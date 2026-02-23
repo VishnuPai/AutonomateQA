@@ -19,7 +19,7 @@ public class SequentialBatchJob
     }
 
     [AutomaticRetry(Attempts = 0)]
-    public async Task Execute(string baseUrl, bool headed, List<ScenarioRunItem> scenarios, string? batchRunId, string? testDataCsvPath = null, string? environment = null, CancellationToken cancellationToken = default)
+    public async Task Execute(string baseUrl, bool headed, List<ScenarioRunItem> scenarios, string? batchRunId, string? testDataCsvPath = null, string? environment = null, string? applicationName = null, CancellationToken cancellationToken = default)
     {
         if (scenarios == null || scenarios.Count == 0)
             return;
@@ -40,7 +40,8 @@ public class SequentialBatchJob
                     BatchRunId = batchRunId,
                     FeaturePath = item.FeaturePath,
                     ScenarioName = item.Name,
-                    Environment = environment
+                    Environment = environment,
+                    ApplicationName = applicationName
                 });
             }
             db.TestResults.AddRange(results);
@@ -54,6 +55,17 @@ public class SequentialBatchJob
             var uiTestService = scope.ServiceProvider.GetRequiredService<IUiTestService>();
             var item = scenarios[i];
             var csvPath = !string.IsNullOrEmpty(item.TestDataCsvPath) ? item.TestDataCsvPath : testDataCsvPath;
+            // When per-scenario path is null we fall back to batch default; if that default is a Production path but the run is for another env (e.g. SIT), do not use it — use the expected path for this feature+env so we never load Production data.
+            if (string.IsNullOrEmpty(csvPath) == false && string.IsNullOrEmpty(environment) == false &&
+                !environment.Equals("Production", StringComparison.OrdinalIgnoreCase) &&
+                csvPath.Contains("Production", StringComparison.OrdinalIgnoreCase))
+            {
+                var featureName = string.IsNullOrWhiteSpace(item.FeaturePath) ? null : Path.GetFileNameWithoutExtension(item.FeaturePath.Trim());
+                if (!string.IsNullOrEmpty(featureName))
+                    csvPath = !string.IsNullOrWhiteSpace(applicationName)
+                        ? $"TestData/{featureName}.{environment.Trim()}.{applicationName}.csv"
+                        : $"TestData/{featureName}.{environment.Trim()}.csv";
+            }
             await uiTestService.RunTestAsync(resultIds[i], baseUrl, headed, item.GherkinScript, csvPath, cancellationToken);
         }
     }

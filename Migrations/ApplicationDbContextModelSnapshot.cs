@@ -56,6 +56,10 @@ namespace UiTestRunner.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ApplicationName")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("TEXT");
 

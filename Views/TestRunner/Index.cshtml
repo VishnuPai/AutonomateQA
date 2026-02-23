@@ -33,6 +33,13 @@
                             </select>
                             <div class="form-text">Optional: pick an env to set URL and use that env's test data CSV for this run.</div>
                         </div>
+                        <div class="min-w-120">
+                            <label for="Application" class="form-label fw-semibold mb-1">Application</label>
+                            <select class="form-select" id="Application" aria-label="Select application for test data CSV">
+                                <option value="">— Default —</option>
+                            </select>
+                            <div class="form-text">Optional: pick an application so CSV uses TestData/{Feature}.{Env}.{Application}.csv. When empty, config default is used.</div>
+                        </div>
                         <ul class="nav nav-tabs nav-tabs-card mb-0 me-2" role="tablist">
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link active" id="tab-single" data-bs-toggle="tab" data-bs-target="#panel-single" type="button" role="tab">Single test</button>
@@ -242,6 +249,9 @@
           <dt class="col-sm-3">Environment</dt>
           <dd class="col-sm-9" id="modalEnvironment"></dd>
 
+          <dt class="col-sm-3">Application</dt>
+          <dd class="col-sm-9" id="modalApplication"></dd>
+
           <dt class="col-sm-3">Status</dt>
           <dd class="col-sm-9" id="modalStatus"></dd>
 
@@ -333,6 +343,7 @@
             fetchSavedTests();
             fetchFeatureFiles();
             fetchEnvironments();
+            fetchApplications();
             const envSelect = document.getElementById('Environment');
             if (envSelect) {
                 envSelect.addEventListener('change', function() {
@@ -412,6 +423,28 @@
                 }
             } catch (err) {
                 console.error("Failed to fetch environments", err);
+            }
+        }
+
+        async function fetchApplications() {
+            try {
+                const response = await fetch('/TestRunner/GetApplications');
+                if (response.ok) {
+                    const list = await response.json();
+                    const apps = list || [];
+                    const select = document.getElementById('Application');
+                    if (select) {
+                        select.innerHTML = '<option value="">— Default —</option>';
+                        apps.forEach(app => {
+                            const opt = document.createElement('option');
+                            opt.value = app.name || '';
+                            opt.textContent = (app.name || '') + (app.isDefault ? ' (default)' : '');
+                            select.appendChild(opt);
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch applications", err);
             }
         }
 
@@ -657,11 +690,13 @@
                     const idx = parseInt(scenarioIndex, 10);
                     if (batchScenariosList[idx]) {
                         const envVal = document.getElementById('Environment').value.trim() || null;
+                        const appVal = document.getElementById('Application').value.trim() || null;
                         const singleData = {
                             url: url,
                             headed: document.getElementById('BatchHeaded').checked,
                             gherkinScript: batchScenariosList[idx].gherkinScript,
-                            environment: envVal
+                            environment: envVal,
+                            applicationName: appVal
                         };
                         const response = await fetch('/TestRunner/TriggerTest', {
                             method: 'POST',
@@ -703,12 +738,14 @@
 
                 const maxVal = document.getElementById('BatchMax').value.trim();
                 const envVal = document.getElementById('Environment').value.trim() || null;
+                const appVal = document.getElementById('Application').value.trim() || null;
                 const data = {
                     baseUrl: url,
                     maxScenarios: maxVal ? parseInt(maxVal, 10) : null,
                     headed: document.getElementById('BatchHeaded').checked,
                     sequential: document.getElementById('BatchSequential').checked,
-                    environment: envVal
+                    environment: envVal,
+                    applicationName: appVal
                 };
                 if (path === '__all__')
                     data.featurePaths = featureFilesList.map(f => f.relativePath);
@@ -880,11 +917,13 @@
             btn.innerText = "Queuing...";
 
             const envVal = document.getElementById('Environment').value.trim() || null;
+            const appVal = document.getElementById('Application').value.trim() || null;
             const data = {
                 Url: urlVal,
                 Headed: document.getElementById('Headed').checked,
                 GherkinScript: document.getElementById('GherkinScript').value,
-                Environment: envVal
+                Environment: envVal,
+                ApplicationName: appVal
             };
 
             try {
@@ -1327,6 +1366,8 @@
             document.getElementById('modalUrl').innerText = item.url;
             const envVal = (item.environment ?? item.Environment ?? '').trim();
             document.getElementById('modalEnvironment').innerText = envVal || '—';
+            const appVal = (item.applicationName ?? item.ApplicationName ?? '').trim();
+            document.getElementById('modalApplication').innerText = appVal || '—';
             document.getElementById('modalDuration').innerText = formatDuration(item.duration ?? item.Duration);
             const tokensEl = document.getElementById('modalTokens');
             if (item.totalTokens != null) {
