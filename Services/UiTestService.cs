@@ -245,6 +245,31 @@ namespace UiTestRunner.Services
                 || lower.StartsWith("background:") || lower.StartsWith("examples:") || lower.StartsWith("rule:");
         }
 
+        /// <summary>True when the step asserts a final page state (e.g. redirected, logged in) rather than asserting that a dialog/popup is shown.</summary>
+        private static bool IsFinalStateVerification(string step)
+        {
+            var lower = step.ToLowerInvariant();
+            if (lower.Contains("popup is shown") || lower.Contains("dialog is displayed") || lower.Contains("modal is") || lower.Contains("popup is displayed")) return false;
+            return lower.Contains("redirected") || lower.Contains("logged in") || lower.Contains("authorized page") || lower.Contains("on the home page") || lower.Contains("I was redirected");
+        }
+
+        /// <summary>Returns true if the page has a visible dialog or alertdialog (role=dialog or role=alertdialog).</summary>
+        private static async Task<bool> HasVisibleDialogAsync(IPage page, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var dialogLocator = page.Locator("[role='dialog'], [role='alertdialog']");
+                var count = await dialogLocator.CountAsync();
+                for (var i = 0; i < count; i++)
+                {
+                    if (await dialogLocator.Nth(i).IsVisibleAsync())
+                        return true;
+                }
+            }
+            catch { /* ignore timeout or DOM errors */ }
+            return false;
+        }
+
         /// <summary>
         /// Executes Gherkin script steps and returns the last executed step name.
         /// </summary>
@@ -276,6 +301,16 @@ namespace UiTestRunner.Services
 
                 if (isVerification)
                 {
+                    // Optional: fail fast if a dialog/modal is open and this step asserts a final page state (e.g. "redirected to authorized page")
+                    if (_playwrightSettings.FailVerificationWhenDialogOpen && IsFinalStateVerification(step))
+                    {
+                        if (await HasVisibleDialogAsync(page, cancellationToken))
+                        {
+                            _logger.LogWarning("Verification step expects final page state but a dialog/modal is visible. Failing step.");
+                            throw new Exception("Verification failed: an unexpected dialog or popup is open. The step expects the final page state (e.g. redirected, logged in) with no modal blocking the view. Dismiss any open dialogs in the scenario or add a step to close them.");
+                        }
+                    }
+
                     bool passed = false;
                     string lastReasoning = string.Empty;
                     const int maxAttempts = 2; // 1 initial + 1 retry (fewer attempts = fewer tokens when step fails)

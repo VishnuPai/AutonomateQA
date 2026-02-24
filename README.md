@@ -52,12 +52,15 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
    ```bash
    dotnet run
    ```
-   Open the app in the browser, go to the Test Runner page. The **Target URL** is empty until you select an **Environment** (which fills the URL from config) or type a URL; a URL is required to run. Optionally select **Environment** and **Application** to use that env’s test data CSV (and feature-specific CSV when available). Paste or upload a Gherkin script (or leave empty for a default flow), then run.
+   Open the app in the browser, go to the Test Runner page. To run as a **Windows Service** (always on), see [docs/Windows-Service.md](docs/Windows-Service.md). The **Target URL** is empty until you select an **Environment** (which fills the URL from config) or type a URL; a URL is required to run. Optionally select **Environment** and **Application** to use that env’s test data CSV (and feature-specific CSV when available). Paste or upload a Gherkin script (or leave empty for a default flow), then run.
 
 ## Configuration reference
 
 | Key | Description | Env override |
 |-----|-------------|--------------|
+| **Urls** | Listening URL(s) for Kestrel (e.g. `http://localhost:5045`). When run as a Windows Service, set this so the app listens on the desired port (launchSettings.json is not used). | `ASPNETCORE_URLS` |
+| **ConnectionStrings:DefaultConnection** | Database connection string. Default (when empty) is `Data Source=app.db` for SQLite. For SQL Server use e.g. `Server=.;Database=UiTestRunner;Integrated Security=true;TrustServerCertificate=true` or specify server, user, and password. | `ConnectionStrings__DefaultConnection` |
+| **Database:Provider** | `Sqlite` (default) or `SqlServer`. Determines which EF Core provider is used. Migrations run for both; use SQL Server for shared or production databases. | `Database__Provider` |
 | **Runner:BaseUrl** | Default URL shown in the runner UI | `Runner__BaseUrl` |
 | **Runner:ScenariosPath** | Folder (relative to app root) for saved recordings and batch-run feature files | `Runner__ScenariosPath` |
 | **Runner:BatchRunMaxPerRequest** | Max scenarios to enqueue per batch run request (default 100). Increase in config or use multiple feature paths via the API for larger runs. | `Runner__BatchRunMaxPerRequest` |
@@ -73,7 +76,7 @@ AutonomateQA is a generic, AI-assisted UI test runner that executes Gherkin step
 | **Gemini:ApiKey** | Google AI Studio API key (optional if using VertexAI) | `Gemini__ApiKey` |
 | **Gemini:ActionModels**, **VerifyModels**, **GherkinModels** | Array of model names for REST API | `Gemini__ActionModels__0`, etc. |
 | **VertexAI:ProjectId**, **Location**, **ModelId** | Vertex AI settings (single model) | `VertexAI__*` |
-| **Playwright:NavigationTimeoutMs**, **InteractionTimeoutMs**, **PostActionDelayMs**, **MaxAriaSnapshotLength**, etc. | Timeouts, viewport, and max Aria snapshot length (characters) sent to AI per step; set to 0 for no limit. Reduces token usage on complex pages. | `Playwright__*` |
+| **Playwright:NavigationTimeoutMs**, **InteractionTimeoutMs**, **PostActionDelayMs**, **MaxAriaSnapshotLength**, **FailVerificationWhenDialogOpen** | Timeouts, viewport, max Aria snapshot length; set to 0 for no limit. **FailVerificationWhenDialogOpen** (default true): fail verification when a dialog/modal is open and the step asserts a final page state (e.g. redirected). See [Handling unexpected popups](docs/Handling-unexpected-popups.md). | `Playwright__*` |
 | **RateLimiting:WindowMinutes**, **PermitLimit** | Rate limit for triggering tests | `RateLimiting__*` |
 
 ## Project layout
@@ -101,11 +104,12 @@ Each step sends the current page’s Aria snapshot to the AI; on complex pages t
 - **Shorter scenarios**: Splitting long scenarios into smaller ones reduces total steps and thus total tokens.
 - **Token usage per run**: The execution history and details modal show tokens per run and total across all runs so you can monitor cost.
 
-## Database (app.db) and migrations
+## Database and migrations
 
-- **Back up** `app.db` before updating the app; migrations only add or alter columns and do not delete existing rows by design.
+- **Provider**: The app supports **SQLite** (default) and **SQL Server**. Set **Database:Provider** to `SqlServer` and **ConnectionStrings:DefaultConnection** to your SQL Server connection string (e.g. `Server=.;Database=UiTestRunner;Integrated Security=true;TrustServerCertificate=true`) to use SQL Server. The same EF Core migrations apply to both providers.
+- **Back up** your database before updating the app; migrations only add or alter columns and do not delete existing rows by design.
 - **If you see a DB error in the console** when starting (e.g. "no such column" or "duplicate column"), copy the full error message. Common cases:
-  - **"no such column: …"** (e.g. GherkinScript, Environment) – migrations or the startup fallback may not have run. Ensure no process has the DB locked, then run the app again so `db.Database.Migrate()` and the column fallback can apply.
+  - **"no such column: …"** (e.g. GherkinScript, Environment) – migrations or the startup fallback may not have run. Ensure no process has the DB locked, then run the app again so `db.Database.Migrate()` can apply. For SQLite, an in-process column fallback also runs; for SQL Server use migrations only.
   - **"duplicate column name: GherkinScript"** – the column was added but the migration was not recorded. You can mark it as applied:  
     `sqlite3 app.db "INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ('20260220200000_AddGherkinScriptToTestResult', '10.0.3');"`
 - **If all execution history disappeared** – the app does not clear the table. Data is only lost if `app.db` was deleted or replaced (e.g. after a failed migration or a clean run). Restore from a backup of `app.db` if you have one.

@@ -1,10 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>33ebf595-284a-48d4-9823-86e942268ff8</UserSecretsId>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,6 +13,14 @@
     <Content Remove="UiTestRunner.Tests\**" />
     <EmbeddedResource Remove="UiTestRunner.Tests\**" />
     <None Remove="UiTestRunner.Tests\**" />
+  </ItemGroup>
+  <!-- Include Scenarios in build output and publish so feature files appear when using dotnet run and when running as a Windows Service -->
+  <ItemGroup>
+    <Content Include="Scenarios\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- Optional: copy app.db to build/publish output if it exists in project root (e.g. from development). By default app.db is created at runtime. -->
+  <ItemGroup>
+    <Content Include="app.db" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="app.db" Condition="Exists('app.db')" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,6 +32,8 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.3" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.3">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

@@ -70,5 +70,10 @@ namespace UiTestRunner.Configuration
         /// Default 6000 so header elements (e.g. My Profile dropdown) are usually included; increase to 7000–8000 if "Then" steps still fail.
         /// </summary>
         public int MaxAriaSnapshotLengthForVerify { get; set; } = 6000;
+
+        /// <summary>
+        /// When true (default), verification steps that assert a final page state (e.g. "redirected to authorized page") will fail immediately if a dialog/modal is visible, without calling the AI. Set to false to rely only on the AI verification prompt.
+        /// </summary>
+        public bool FailVerificationWhenDialogOpen { get; set; } = true;
     }
 }
